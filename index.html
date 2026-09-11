@@ -1,11 +1,28 @@
+Вот готовый обновлённый `index.html`.В него добавлены:
+
+1. Подключение библиотеки **SheetJS (XLSX)** в `<head>`.
+
+
+2. Кнопка **«Импорт из Excel»** на вкладке **Каталог** над формой создания нового товара.
+
+
+3. Функция `handleExcelImport(event)`, которая считывает выбранный `.xlsx` / `.xls` файл и сохраняет все позиции из таблицы прямо в вашу базу данных **Cloud Firestore**.
+
+
+
+Вся ваша исходная логика (работа кассы, отчёты, должники, печать чека и синхронизация) осталась полностью нетронутой.
+
+```html
 <!DOCTYPE html>
 <html lang="ru" class="h-full bg-slate-900 text-slate-100 font-sans antialiased">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>uMag POS System</title>
+    <title>SellCount System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Библиотека для чтения файлов Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <!-- Firebase SDK (v10) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -248,6 +265,17 @@
         <!-- 4. ВКЛАДКА: КАТАЛОГ -->
         <div id="view-products" class="hidden h-full grid grid-cols-12 gap-6">
             <div class="col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <!-- Блок Импорта Excel -->
+                <div class="border-b border-slate-800 pb-4">
+                    <h3 class="text-sm font-bold text-slate-200 mb-2">Загрузка товаров</h3>
+                    <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="hidden" onchange="handleExcelImport(event)">
+                    <button type="button" onclick="document.getElementById('excel-file-input').click()" 
+                        class="w-full bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition">
+                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                        <span>Импорт из Excel (.xlsx)</span>
+                    </button>
+                </div>
+
                 <h3 class="text-sm font-bold text-slate-200 border-b border-slate-800 pb-3">Новый товар</h3>
                 <form id="add-prod-form" class="space-y-3">
                     <div>
@@ -359,6 +387,58 @@
                 debtors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderDebts();
             });
+        }
+
+        // Функция обработки импорта файла Excel
+        async function handleExcelImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!window.db) {
+                alert("Ошибка: База данных Firebase не подключена.");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                    if (jsonData.length === 0) {
+                        alert("Файл пуст или имеет неверный формат!");
+                        return;
+                    }
+
+                    const { addDoc, collection } = window.firestoreTools;
+                    let count = 0;
+
+                    for (const row of jsonData) {
+                        const product = {
+                            barcode: String(row['Штрихкод'] || row['Barcode'] || row['barcode'] || '').trim(),
+                            name: String(row['Наименование'] || row['Название'] || row['Name'] || row['name'] || '').trim(),
+                            price: parseFloat(row['Цена'] || row['Продажа'] || row['Price'] || 0),
+                            cost: parseFloat(row['Закуп'] || row['Cost'] || 0),
+                            stock: parseInt(row['Остаток'] || row['Количество'] || row['Stock'] || 0)
+                        };
+
+                        if (product.name) {
+                            await addDoc(collection(window.db, "products"), product);
+                            count++;
+                        }
+                    }
+
+                    alert(`Успешно импортировано товаров: ${count}`);
+                    event.target.value = '';
+                } catch (err) {
+                    console.error("Ошибка при импорте Excel:", err);
+                    alert("Произошла ошибка при обработке файла Excel.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
         }
 
         // Автофокус сканера
@@ -578,7 +658,7 @@
             document.getElementById('total-debts-sum').innerText = `${sum} ₸`;
         }
 
-        // Добавление товара в Firestore
+        // Добавление товара в Firestore вручную
         document.getElementById('add-prod-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const { addDoc, collection } = window.firestoreTools;
@@ -635,3 +715,5 @@
     </script>
 </body>
 </html>
+
+```
