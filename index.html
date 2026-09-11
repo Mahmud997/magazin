@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ru" class="h-full bg-slate-900 text-slate-100 font-sans antialiased">
 <head>
@@ -7,7 +6,7 @@
     <title>SellCount System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Библиотека для чтения файлов Excel -->
+    <!-- Библиотека для чтения и записи файлов Excel -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <!-- Firebase SDK (v10) -->
     <script type="module">
@@ -251,14 +250,23 @@
         <!-- 4. ВКЛАДКА: КАТАЛОГ -->
         <div id="view-products" class="hidden h-full grid grid-cols-12 gap-6">
             <div class="col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                <!-- Блок Импорта Excel -->
-                <div class="border-b border-slate-800 pb-4">
-                    <h3 class="text-sm font-bold text-slate-200 mb-2">Загрузка товаров</h3>
+                
+                <!-- Блок Импорта Excel и Скачивания Примера -->
+                <div class="border-b border-slate-800 pb-4 space-y-2">
+                    <h3 class="text-sm font-bold text-slate-200 mb-1">Загрузка товаров</h3>
+                    
                     <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="hidden" onchange="handleExcelImport(event)">
+                    
                     <button type="button" onclick="document.getElementById('excel-file-input').click()" 
-                        class="w-full bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition">
+                        class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition">
                         <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
                         <span>Импорт из Excel (.xlsx)</span>
+                    </button>
+
+                    <button type="button" onclick="downloadExcelSample()" 
+                        class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition">
+                        <i data-lucide="download" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span>Скачать пример XLSX</span>
                     </button>
                 </div>
 
@@ -373,6 +381,22 @@
                 debtors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderDebts();
             });
+        }
+
+        // Скачивание демонстрационного файла Excel
+        function downloadExcelSample() {
+            const sampleData = [
+                { "Штрихкод": "4870001001234", "Наименование": "Вода Tassay 0.5л", "Продажа": 250, "Закуп": 180, "Остаток": 48 },
+                { "Штрихкод": "4870002005678", "Наименование": "Шоколад Казахстанский 100г", "Продажа": 650, "Закуп": 480, "Остаток": 20 },
+                { "Штрихкод": "4870003009999", "Наименование": "Хлеб Бородинский", "Продажа": 180, "Закуп": 140, "Остаток": 15 }
+            ];
+
+            const worksheet = XLSX.utils.json_to_sheet(sampleData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Товары");
+
+            // Генерация и выгрузка файла
+            XLSX.writeFile(workbook, "primer_tovarov.xlsx");
         }
 
         // Функция обработки импорта файла Excel
@@ -701,5 +725,3 @@
     </script>
 </body>
 </html>
-
-```
