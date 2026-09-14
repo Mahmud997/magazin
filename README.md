@@ -1,50 +1,62 @@
-# uMag POS — GitHub Pages
+# SellCount System — GitHub Pages
 
-Готовая статическая версия приложения для публикации через GitHub Pages.
+Готовая статическая версия POS-приложения с входом через **Google**.
 
-## Важно перед публикацией
+## Авторизация (Google)
 
-В `index.html` в блоке `firebaseConfig` сейчас стоят:
+1. Firebase Console → **Authentication** → Sign-in method → включите **Google**.
+2. Authentication → Settings → **Authorized domains** — добавьте:
+   - `localhost`
+   - ваш домен GitHub Pages (`username.github.io`)
+3. Firestore → коллекция **`users`**
 
-- `YOUR_API_KEY`
-- `YOUR_PROJECT_ID`
-- `YOUR_SENDER_ID`
-- `YOUR_APP_ID`
+### Как назначаются роли
 
-Их нужно заменить на настройки вашего Firebase-проекта.
+| Событие | Что происходит |
+|---------|----------------|
+| Первый вход через Google | Создаётся документ `users/{uid}` с `role: "seller"` |
+| Сделать админом | В Firestore откройте `users/{uid}` и поставьте `role: "admin"` |
 
-**Эти значения не являются паролями:** Firebase Web Config обычно публикуется вместе с фронтендом. Защита данных выполняется правилами Firestore.
+Пример документа пользователя:
 
-## Как опубликовать
+```
+users/{uid}
+  email: "user@gmail.com"
+  name: "Иван"
+  role: "admin"     // или "seller"
+  store: "Мой магазин"
+```
 
-1. Создайте репозиторий на GitHub.
-2. Загрузите `index.html`.
-3. Откройте **Settings → Pages**.
-4. Включите публикацию из ветки `main`, папки `/root`.
-5. Откройте выданный адрес GitHub Pages.
+Продавец **не видит** чистую прибыль и вкладку «Каталог».
 
-## Firebase
+## Firebase config
 
-В Firebase Console создайте Firestore Database и коллекции:
+В `index.html` блок `firebaseConfig` — подставьте ключи своего проекта при необходимости.
 
-- `products`
-- `sales`
-- `debtors`
+Коллекции Firestore:
 
-Приложение использует Firebase SDK 10.8.0 с CDN, поэтому отдельная сборка npm не нужна.
+- `products` — товары
+- `sales` — продажи
+- `debtors` — должники
+- `users` — роли пользователей (создаётся при первом входе)
 
-## Что исправлено в этой версии
+## Публикация на GitHub Pages
 
-- GitHub Pages может открывать проект как обычный `index.html`.
-- Добавлена проверка, настроен ли Firebase.
-- При ошибке инициализации Firebase приложение не падает молча.
-- Добавлена видимая подсказка, если `YOUR_*` не заменены.
-- Исправлена ошибка CSS в печати чека.
-- Добавлена защита HTML-вывода данных из Firestore от вставки HTML/скриптов.
-- Добавлена проверка отсутствующего товара при изменении количества.
-- Числовые значения Firestore обрабатываются безопаснее.
+1. Загрузите содержимое папки в репозиторий.
+2. Settings → Pages → branch `main` / root.
+3. Добавьте домен Pages в Authorized domains Firebase Auth.
 
-## Безопасность Firestore
+## Правила Firestore (для старта)
 
-Не используйте для реального магазина правила вида `allow read, write: if true;`.
-Для рабочего варианта нужно добавить Firebase Authentication и правила доступа по ролям/пользователям.
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
+
+Для продакшена ограничьте доступ по `request.auth.uid` и полям `role`.
