@@ -1,36 +1,29 @@
-<!DOCTYPE html>
-<html lang="ru" class="h-full" data-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SellCount System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {}
-            }
-        }
-    </script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-    <!-- Firebase SDK (v10) -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { 
-            getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, getDoc, setDoc
-        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import {
-            getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
-        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-        // ==========================================
-        //  ВСТАВЬТЕ ВАШИ НАСТРОЙКИ FIREBASE СЮДА:
-        // ==========================================
-      const firebaseConfig = {
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SellCount POS & Inventory</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {} }
+  }
+</script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+// ═══════════════════════════════════════════════════════════════
+//  ВСТАВЬТЕ СВОИ КЛЮЧИ FIREBASE СЮДА (Firebase Console → Project settings)
+// ═══════════════════════════════════════════════════════════════
+const firebaseConfig = {
   apiKey: "AIzaSyDfZ1cHuQuKJEI9vOVGg4kb_3rqpJRI6iY",
   authDomain: "magazine-f2da1.firebaseapp.com",
   projectId: "magazine-f2da1",
@@ -39,1419 +32,1448 @@
   appId: "1:43795584126:web:0af9366202d89c0322342f"
 };
 
-        const isFirebaseConfigured =
-            firebaseConfig.apiKey !== "YOUR_API_KEY" &&
-            firebaseConfig.projectId !== "YOUR_PROJECT_ID" &&
-            firebaseConfig.appId !== "YOUR_APP_ID";
+window.firebaseConfigMissing = Object.values(firebaseConfig).some(v => String(v).startsWith("YOUR_"));
+window.db = null;
+window.auth = null;
+window.firebaseReady = false;
+window.googleProvider = null;
 
-        if (isFirebaseConfigured) {
-            try {
-                const app = initializeApp(firebaseConfig);
-                const db = getFirestore(app);
-                const auth = getAuth(app);
-                window.db = db;
-                window.auth = auth;
-                window.GoogleAuthProvider = GoogleAuthProvider;
-                window.signInWithPopup = signInWithPopup;
-                window.signOut = signOut;
-                window.onAuthStateChanged = onAuthStateChanged;
-            } catch (error) {
-                console.error("Firebase initialization error:", error);
-                window.firebaseInitError = error;
-            }
-        } else {
-            window.firebaseConfigMissing = true;
-        }
-        window.firestoreTools = { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, getDoc, setDoc };
-    </script>
+if (!window.firebaseConfigMissing) {
+  try {
+    const app = initializeApp(firebaseConfig);
+    window.db = getFirestore(app);
+    window.auth = getAuth(app);
+    window.googleProvider = new GoogleAuthProvider();
+    window.firebaseReady = true;
+  } catch (e) {
+    console.error('Firebase init error:', e);
+    window.firebaseConfigMissing = true;
+  }
+}
 
-    <style>
-        :root {
-            --bg-body: #020617;
-            --bg-card: #0f172a;
-            --bg-input: #020617;
-            --border: #1e293b;
-            --text: #f1f5f9;
-            --text-muted: #94a3b8;
-            --accent: #10b981;
-        }
-        html.light {
-            --bg-body: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-input: #f1f5f9;
-            --border: #e2e8f0;
-            --text: #0f172a;
-            --text-muted: #64748b;
-            --accent: #059669;
-        }
-        body {
-            background-color: var(--bg-body);
-            color: var(--text);
-        }
-        .card {
-            background-color: var(--bg-card);
-            border-color: var(--border);
-        }
-        .input-field {
-            background-color: var(--bg-input);
-            border-color: var(--border);
-            color: var(--text);
-        }
-        @media print {
-            body * { visibility: hidden; }
-            #printable-receipt, #printable-receipt *,
-            #printable-report, #printable-report * { visibility: visible; }
-            #printable-receipt, #printable-report {
-                position: absolute; left: 0; top: 0; width: 100%;
-                padding: 0; margin: 0; color: #000; background: #fff;
-            }
-            .no-print { display: none !important; }
-        }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #64748b; border-radius: 4px; }
-        .critical-stock { background-color: rgba(244, 63, 94, 0.12) !important; }
-        .fast-seller { border-color: #10b981 !important; box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3); }
-        .necessity-badge { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-    </style>
+// Экспортируем функции для использования из обычного скрипта
+window.fbSignInWithGoogle = async function() {
+  if (!window.firebaseReady || !window.auth) throw new Error('Firebase не настроен');
+  const result = await signInWithPopup(window.auth, window.googleProvider);
+  return result.user;
+};
+
+window.fbSignOut = async function() {
+  if (window.auth) await signOut(window.auth);
+};
+
+window.fbOnAuthStateChanged = function(callback) {
+  if (window.auth) onAuthStateChanged(window.auth, callback);
+};
+
+// Полная синхронизация: local → Firebase
+window.fbUploadAll = async function(uid, data) {
+  if (!window.db || !uid) return false;
+  const batch = writeBatch(window.db);
+  const base = `users/${uid}`;
+
+  // Meta
+  batch.set(doc(window.db, base, 'meta', 'info'), {
+    receiptCounter: data.receiptCounter,
+    updatedAt: new Date().toISOString(),
+    cashierName: data.cashierName || ''
+  });
+
+  // Products
+  for (const p of data.products) {
+    batch.set(doc(window.db, base, 'products', p.id), p);
+  }
+  // Sales
+  for (const s of data.sales) {
+    batch.set(doc(window.db, base, 'sales', s.id), s);
+  }
+  // Stock ops
+  for (const o of data.stockOps) {
+    batch.set(doc(window.db, base, 'stockOps', o.id), o);
+  }
+  // Held carts
+  for (const h of data.heldCarts) {
+    batch.set(doc(window.db, base, 'heldCarts', h.id), h);
+  }
+
+  await batch.commit();
+  return true;
+};
+
+// Загрузка всего из Firebase → local
+window.fbDownloadAll = async function(uid) {
+  if (!window.db || !uid) return null;
+  const base = `users/${uid}`;
+  const result = { products: [], sales: [], stockOps: [], heldCarts: [], receiptCounter: 1001, cashierName: '' };
+
+  try {
+    const metaSnap = await getDoc(doc(window.db, base, 'meta', 'info'));
+    if (metaSnap.exists()) {
+      const m = metaSnap.data();
+      result.receiptCounter = m.receiptCounter || 1001;
+      result.cashierName = m.cashierName || '';
+    }
+
+    const [prodSnap, salesSnap, opsSnap, heldSnap] = await Promise.all([
+      getDocs(collection(window.db, base, 'products')),
+      getDocs(collection(window.db, base, 'sales')),
+      getDocs(collection(window.db, base, 'stockOps')),
+      getDocs(collection(window.db, base, 'heldCarts'))
+    ]);
+
+    prodSnap.forEach(d => result.products.push(d.data()));
+    salesSnap.forEach(d => result.sales.push(d.data()));
+    opsSnap.forEach(d => result.stockOps.push(d.data()));
+    heldSnap.forEach(d => result.heldCarts.push(d.data()));
+
+    return result;
+  } catch (e) {
+    console.error('Download error:', e);
+    return null;
+  }
+};
+</script>
+<style>
+  :root {
+    --bg-main: #dbe4eb;
+    --bg-card: #ffffff;
+    --bg-header: #0e8b78;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --border: #cbd5e1;
+    --btn-bg: #ffffff;
+    --btn-hover: #f8fafc;
+    --selected: #e0f2fe;
+    --total-bg: #e2eaf0;
+  }
+  .dark {
+    --bg-main: #0f172a;
+    --bg-card: #1e293b;
+    --bg-header: #065f46;
+    --text-main: #e2e8f0;
+    --text-muted: #94a3b8;
+    --border: #334155;
+    --btn-bg: #334155;
+    --btn-hover: #475569;
+    --selected: #1e3a5f;
+    --total-bg: #1e293b;
+  }
+  html, body { height: 100%; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    overflow: hidden;
+  }
+  .pos-btn {
+    background: var(--btn-bg);
+    color: var(--text-main);
+    font-weight: 700;
+    border-radius: 0.75rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    border: 1px solid var(--border);
+    transition: all 0.1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .pos-btn:hover { background: var(--btn-hover); border-color: #94a3b8; }
+  .pos-btn:active { transform: scale(0.98); }
+  .num-pad button {
+    background: var(--btn-bg);
+    color: var(--text-main);
+    font-weight: 700;
+    font-size: 1.2rem;
+    border-radius: 0.5rem;
+    height: 3.2rem;
+    border: 1px solid var(--border);
+  }
+  .num-pad button:hover { background: var(--btn-hover); }
+  .tab-active { background: #059669 !important; color: #fff !important; }
+  .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  #receipt-lines tr.selected { background: var(--selected); }
+  .theme-card { background: var(--bg-card); border-color: var(--border); color: var(--text-main); }
+  .theme-header { background: var(--bg-header); }
+  .theme-total { background: var(--total-bg); }
+
+  @media print {
+    body * { visibility: hidden !important; }
+    #printable-receipt, #printable-receipt *,
+    #printable-barcode, #printable-barcode * { visibility: visible !important; }
+    #printable-receipt, #printable-barcode {
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      width: 80mm !important;
+      background: white !important;
+      color: black !important;
+      padding: 8px !important;
+      font-family: monospace !important;
+    }
+    .no-print { display: none !important; }
+  }
+</style>
 </head>
-<body class="h-full flex flex-col overflow-hidden">
+<body class="h-full flex flex-col overflow-hidden select-none">
 
-    <!-- ЭКРАН ВХОДА (Google) -->
-    <div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 no-print">
-        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 w-full max-w-md shadow-2xl">
-            <div class="flex items-center gap-3 mb-6">
-                <div class="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl text-emerald-400">
-                    <i data-lucide="store" class="w-7 h-7"></i>
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold text-white">SellCount System</h1>
-                    <p class="text-xs text-slate-400">Вход через Google-аккаунт</p>
-                </div>
-            </div>
-
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-[11px] font-semibold text-slate-400 mb-1.5 uppercase">Название магазина</label>
-                    <input type="text" id="login-store" value="QORGANBAY" 
-                        class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-600">
-                </div>
-
-                <p class="text-[11px] text-slate-500 leading-relaxed">
-                    Роль (админ / продавец) назначается в Firebase → коллекция <b>users</b>.
-                    Первый вход создаёт пользователя с ролью <b>seller</b>. Админу роль меняют вручную в Firestore.
-                </p>
-
-                <button id="btn-google-login" onclick="loginWithGoogle()" 
-                    class="w-full bg-white hover:bg-slate-100 text-slate-800 font-bold py-3 rounded-xl text-sm transition flex items-center justify-center gap-3 border border-slate-300">
-                    <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                    Войти через Google
-                </button>
-
-                <div id="login-error" class="hidden text-xs text-rose-400 bg-rose-950/40 border border-rose-800 rounded-xl px-3 py-2"></div>
-                <div id="login-loading" class="hidden text-xs text-slate-400 text-center">Вход…</div>
-            </div>
-        </div>
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm no-print">
+  <div class="theme-card border rounded-3xl p-8 w-full max-w-md shadow-2xl">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 p-3 rounded-2xl text-emerald-600 dark:text-emerald-400">
+        <i data-lucide="store" class="w-7 h-7"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold">SellCount POS</h1>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Управление кассой и складом</p>
+      </div>
     </div>
 
-    <!-- Верхняя Панель Навигации -->
-    <header class="card border-b h-16 flex items-center px-6 justify-between shrink-0 no-print">
-        <div class="flex items-center gap-3">
-            <div class="bg-emerald-500/10 border border-emerald-500/20 p-2 rounded-xl text-emerald-400">
-                <i data-lucide="store" class="w-5 h-5"></i>
-            </div>
-            <div>
-                <h1 class="text-sm font-bold tracking-tight uppercase" id="header-store-name">SellCount System</h1>
-                <div class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span class="text-[11px] text-slate-400 font-medium" id="header-user-info">—</span>
-                </div>
-            </div>
+    <div class="space-y-3">
+      <!-- Google Sign-In -->
+      <button id="btn-google-login" onclick="loginWithGoogle()" class="w-full flex items-center justify-center gap-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold py-3 rounded-xl text-sm shadow-sm transition">
+        <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Войти через Google
+      </button>
+
+      <div class="flex items-center gap-3 my-2">
+        <div class="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
+        <span class="text-[11px] text-slate-400 uppercase">или</span>
+        <div class="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 uppercase">Магазин / Кассир (офлайн)</label>
+        <input type="text" id="login-cashier" value="Кассир 1" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-600">
+      </div>
+      <button onclick="enterOfflineMode()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-sm shadow-md">
+        Войти офлайн
+      </button>
+
+      <p id="login-hint" class="text-[11px] text-center text-slate-400 mt-2">
+        Для Google-входа укажите ключи Firebase в коде
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER BAR -->
+<header class="no-print flex items-center justify-between px-3 py-1.5 theme-header text-white shrink-0 shadow-md">
+  <div class="flex items-center gap-3 text-xs">
+    <span class="bg-emerald-800/60 px-2 py-0.5 rounded font-mono font-bold">SellCount POS</span>
+    <span>ВРЕМЯ: <b id="hdr-time">--:--</b></span>
+    <span>КАССИР: <b id="hdr-cashier">--</b></span>
+    <span id="online-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500">ОФЛАЙН</span>
+    <span id="sync-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-600 hidden">СИНХР...</span>
+  </div>
+  <div class="flex items-center gap-1 flex-wrap justify-end">
+    <button onclick="switchMainTab('sales')" id="mtab-sales" class="tab-active px-3 py-1 rounded text-xs font-bold uppercase">ПРОДАЖИ</button>
+    <button onclick="switchMainTab('held')" id="mtab-held" class="px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50">ОТЛОЖЕННЫЕ (<span id="held-count">0</span>)</button>
+    <button onclick="switchMainTab('returns')" id="mtab-returns" class="px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50">ВОЗВРАТЫ</button>
+    <button onclick="switchMainTab('stock_ops')" id="mtab-stock_ops" class="px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50">СКЛАД</button>
+    <button onclick="switchMainTab('catalog')" id="mtab-catalog" class="px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50">КАТАЛОГ</button>
+    <button onclick="switchMainTab('reports')" id="mtab-reports" class="px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50">ОТЧЁТЫ</button>
+    <button onclick="switchMainTab('backup')" id="mtab-backup" class="px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50">БЭКАП</button>
+    <button onclick="toggleTheme()" id="theme-toggle" class="ml-1 px-2 py-1 rounded text-xs font-bold bg-emerald-800/60 hover:bg-emerald-700" title="Тема">
+      <span id="theme-icon">🌙</span>
+    </button>
+    <button onclick="logout()" id="btn-logout" class="ml-1 px-2 py-1 rounded text-xs font-bold bg-rose-700/80 hover:bg-rose-600 hidden" title="Выйти">Выйти</button>
+  </div>
+</header>
+
+<!-- MAIN VIEWPORT -->
+<main class="flex-1 overflow-hidden flex p-1.5 gap-1.5" style="background: var(--bg-main);">
+
+  <!-- 1. SALES VIEW -->
+  <div id="view-sales" class="flex-1 flex overflow-hidden gap-1.5">
+    <div class="flex-1 flex flex-col min-w-0 theme-card rounded-xl shadow-sm border overflow-hidden">
+      <div class="px-3 py-2 border-b text-xs flex justify-between items-center gap-2" style="background: var(--total-bg); border-color: var(--border);">
+        <div>Чек № <b id="receipt-num" class="text-sm">--</b></div>
+        <div class="flex-1 max-w-md relative">
+          <input type="text" id="search-input" placeholder="Штрихкод, код или название..." 
+            class="w-full bg-white dark:bg-slate-800 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-600"
+            style="border-color: var(--border);"
+            oninput="onSearchInput()" onkeydown="onSearchKey(event)">
+          <div id="search-suggest" class="hidden absolute left-0 right-0 top-full mt-1 z-30 theme-card border rounded-lg shadow-xl max-h-60 overflow-y-auto scroll-thin"></div>
         </div>
-
-        <nav class="flex items-center gap-1 bg-slate-950/50 dark:bg-slate-950 p-1 rounded-xl border border-slate-800/80" id="main-nav">
-            <button onclick="switchTab('pos')" id="tab-btn-pos" class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white shadow-sm transition">
-                <i data-lucide="shopping-bag" class="w-4 h-4"></i>
-                <span>Касса</span>
-            </button>
-            <button onclick="switchTab('reports')" id="tab-btn-reports" class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition">
-                <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
-                <span>Отчеты</span>
-            </button>
-            <button onclick="switchTab('debts')" id="tab-btn-debts" class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition">
-                <i data-lucide="book-open" class="w-4 h-4"></i>
-                <span>Должники</span>
-            </button>
-            <button onclick="switchTab('products')" id="tab-btn-products" class="admin-only flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition">
-                <i data-lucide="boxes" class="w-4 h-4"></i>
-                <span>Каталог</span>
-            </button>
-        </nav>
-
-        <div class="flex items-center gap-2">
-            <button onclick="toggleTheme()" title="Светлая / тёмная тема"
-                class="p-2 rounded-xl border border-slate-700 hover:bg-slate-800 transition text-slate-300">
-                <i data-lucide="sun" class="w-4 h-4 theme-icon-sun hidden"></i>
-                <i data-lucide="moon" class="w-4 h-4 theme-icon-moon"></i>
-            </button>
-            <button onclick="doLogout()" title="Выйти"
-                class="p-2 rounded-xl border border-slate-700 hover:bg-rose-900/40 hover:border-rose-600 transition text-slate-300 hover:text-rose-400">
-                <i data-lucide="log-out" class="w-4 h-4"></i>
-            </button>
+        <div class="flex items-center gap-1">
+          <span class="text-[11px] font-bold">Покупатель:</span>
+          <input type="text" id="cart-customer" placeholder="ФИО / Телефон" 
+            class="bg-white dark:bg-slate-800 border rounded px-2 py-0.5 text-xs w-36" style="border-color: var(--border);">
         </div>
-    </header>
-
-    <!-- Основной Контент -->
-    <main class="flex-1 overflow-hidden p-6 no-print">
-
-        <!-- 1. ВКЛАДКА: КАССА -->
-        <div id="view-pos" class="h-full grid grid-cols-12 gap-6">
-            <div class="col-span-7 flex flex-col gap-4 h-full overflow-hidden">
-                <div class="card border p-3 rounded-2xl flex items-center gap-3">
-                    <div class="text-slate-500 pl-2">
-                        <i data-lucide="scan-barcode" class="w-5 h-5"></i>
-                    </div>
-                    <input type="text" id="barcode-input" placeholder="Сканируйте штрихкод или введите наименование..." 
-                        class="w-full bg-transparent border-none text-sm focus:outline-none placeholder:text-slate-500 font-medium">
-                </div>
-
-                <div class="card border rounded-2xl p-4 flex-1 flex flex-col overflow-hidden">
-                    <div class="flex items-center justify-between mb-3 shrink-0">
-                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Товары на складе</span>
-                        <span id="catalog-count" class="text-xs text-slate-500">0 наименований</span>
-                    </div>
-                    <div id="product-grid" class="grid grid-cols-3 gap-3 overflow-y-auto pr-1 flex-1">
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-span-5 card border rounded-2xl p-5 flex flex-col justify-between h-full">
-                <div class="flex flex-col overflow-hidden">
-                    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
-                            <h2 class="text-sm font-bold">Текущий чек</h2>
-                        </div>
-                        <button onclick="clearCart()" class="text-xs text-rose-400 hover:text-rose-300 transition font-medium">Очистить</button>
-                    </div>
-
-                    <div class="overflow-y-auto max-h-[320px] pr-1">
-                        <table class="w-full text-left text-xs">
-                            <tbody id="cart-table" class="divide-y divide-slate-800/60"></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="space-y-4 pt-4 border-t border-slate-800 shrink-0">
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Клиент / Должник</label>
-                        <input type="text" id="cart-client" placeholder="Частное лицо" 
-                            class="w-full input-field border rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-600">
-                    </div>
-
-                    <div class="bg-slate-950/50 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between">
-                        <div>
-                            <div class="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Итого к оплате</div>
-                            <div id="cart-total" class="text-2xl font-extrabold text-emerald-400 tracking-tight">0 ₸</div>
-                        </div>
-                        <div id="cart-items-sum" class="text-xs text-slate-500 font-medium">0 позиций</div>
-                    </div>
-
-                    <div class="grid grid-cols-3 gap-2">
-                        <button onclick="processSale('Kaspi')" class="bg-teal-600 hover:bg-teal-500 text-white py-3 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition">
-                            <i data-lucide="qr-code" class="w-4 h-4"></i>
-                            <span>Kaspi QR</span>
-                        </button>
-                        <button onclick="processSale('Наличные')" class="bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition">
-                            <i data-lucide="banknote" class="w-4 h-4"></i>
-                            <span>Наличные</span>
-                        </button>
-                        <button onclick="processSale('В долг')" class="bg-rose-600 hover:bg-rose-500 text-white py-3 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition">
-                            <i data-lucide="notebook" class="w-4 h-4"></i>
-                            <span>В долг</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
+      </div>
+      <div class="flex-1 overflow-auto scroll-thin">
+        <table class="w-full text-xs">
+          <thead class="sticky top-0 border-b text-slate-500 dark:text-slate-400 uppercase font-semibold" style="background: var(--total-bg); border-color: var(--border);">
+            <tr>
+              <th class="p-2 text-left w-8">#</th>
+              <th class="p-2 text-left">НАИМЕНОВАНИЕ</th>
+              <th class="p-2 text-right">ЦЕНА</th>
+              <th class="p-2 text-center">КОЛ-ВО</th>
+              <th class="p-2 text-center">Е.И.</th>
+              <th class="p-2 text-right">СУММА</th>
+            </tr>
+          </thead>
+          <tbody id="receipt-lines" class="divide-y" style="border-color: var(--border);"></tbody>
+        </table>
+      </div>
+      <div class="p-3 border-t flex items-center justify-between theme-total" style="border-color: var(--border);">
+        <div>
+          <div class="text-[11px] font-bold uppercase" style="color: var(--text-muted);">ИТОГО К ОПЛАТЕ</div>
+          <div id="total-sum" class="text-3xl font-extrabold">0.00 ₸</div>
         </div>
-
-        <!-- 2. ВКЛАДКА: ОТЧЕТЫ -->
-        <div id="view-reports" class="hidden h-full flex-col gap-6 overflow-y-auto">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="text-sm font-bold" id="report-title">Отчёт</h2>
-                    <span id="report-date-label" class="text-xs text-slate-500"></span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <button onclick="printReport()" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
-                        <i data-lucide="printer" class="w-3.5 h-3.5"></i> Печать
-                    </button>
-                    <button onclick="exportReportExcel()" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition">
-                        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i> Excel
-                    </button>
-                    <button onclick="exportReportPDF()" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-rose-700 hover:bg-rose-600 text-white transition">
-                        <i data-lucide="file-text" class="w-3.5 h-3.5"></i> PDF
-                    </button>
-                </div>
-            </div>
-
-            <!-- Фильтр периода: день / неделя / период -->
-            <div class="card border rounded-2xl p-4 flex flex-wrap items-end gap-3">
-                <div class="flex items-center gap-1 bg-slate-950/50 p-1 rounded-xl border border-slate-800">
-                    <button type="button" id="period-btn-day" onclick="setReportPeriod('day')" class="period-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white transition">День</button>
-                    <button type="button" id="period-btn-week" onclick="setReportPeriod('week')" class="period-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition">Неделя</button>
-                    <button type="button" id="period-btn-range" onclick="setReportPeriod('range')" class="period-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition">Период</button>
-                </div>
-                <div id="period-day-controls" class="flex items-center gap-2">
-                    <label class="text-[10px] font-semibold text-slate-400 uppercase">Дата</label>
-                    <input type="date" id="report-date" class="input-field border rounded-xl px-3 py-1.5 text-xs" onchange="renderReports()">
-                </div>
-                <div id="period-range-controls" class="hidden flex items-center gap-2 flex-wrap">
-                    <div class="flex items-center gap-2">
-                        <label class="text-[10px] font-semibold text-slate-400 uppercase">С</label>
-                        <input type="date" id="report-date-from" class="input-field border rounded-xl px-3 py-1.5 text-xs" onchange="renderReports()">
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <label class="text-[10px] font-semibold text-slate-400 uppercase">По</label>
-                        <input type="date" id="report-date-to" class="input-field border rounded-xl px-3 py-1.5 text-xs" onchange="renderReports()">
-                    </div>
-                </div>
-                <button type="button" onclick="renderReports()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
-                    Обновить
-                </button>
-            </div>
-
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="stats-grid">
-                <div class="card border p-4 rounded-2xl">
-                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider" id="stat-revenue-label">Выручка</div>
-                    <div id="stat-revenue" class="text-2xl font-black text-emerald-400 mt-2">0 ₸</div>
-                </div>
-                <div class="card border p-4 rounded-2xl admin-only" id="stat-profit-card">
-                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Чистая прибыль</div>
-                    <div id="stat-profit" class="text-2xl font-black text-indigo-400 mt-2">0 ₸</div>
-                </div>
-                <div class="card border p-4 rounded-2xl">
-                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Kaspi / Безналичные</div>
-                    <div id="stat-kaspi" class="text-2xl font-black text-teal-400 mt-2">0 ₸</div>
-                </div>
-                <div class="card border p-4 rounded-2xl">
-                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Наличные</div>
-                    <div id="stat-cash" class="text-2xl font-black mt-2">0 ₸</div>
-                </div>
-            </div>
-
-            <div class="card border rounded-2xl p-5 flex-1 flex flex-col">
-                <h3 class="text-sm font-bold mb-4" id="journal-title">Журнал операций</h3>
-                <div class="overflow-y-auto flex-1">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-950/50 text-slate-400 uppercase border-b border-slate-800">
-                            <tr>
-                                <th class="p-3">Дата / Время</th>
-                                <th class="p-3">Покупатель</th>
-                                <th class="p-3">Тип оплаты</th>
-                                <th class="p-3">Состав</th>
-                                <th class="p-3 text-right">Сумма</th>
-                            </tr>
-                        </thead>
-                        <tbody id="sales-history-table" class="divide-y divide-slate-800/60"></tbody>
-                    </table>
-                </div>
-            </div>
+        <div class="text-xs text-right" style="color: var(--text-muted);">
+          <div>Позиций: <b id="cart-items-count">0</b></div>
         </div>
-
-        <!-- 3. ВКЛАДКА: ДОЛЖНИКИ -->
-        <div id="view-debts" class="hidden h-full flex-col gap-6">
-            <div class="card border rounded-2xl p-5 flex-1 flex flex-col">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-sm font-bold">Реестр задолженностей</h3>
-                    <div class="text-right">
-                        <span class="text-xs text-slate-400 uppercase tracking-wider">Сумма долгов:</span>
-                        <div id="total-debts-sum" class="text-xl font-black text-rose-500">0 ₸</div>
-                    </div>
-                </div>
-                <div class="overflow-y-auto flex-1">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-950/50 text-slate-400 uppercase border-b border-slate-800">
-                            <tr>
-                                <th class="p-3">ФИО / Имя</th>
-                                <th class="p-3">Дата образования</th>
-                                <th class="p-3">Сумма</th>
-                                <th class="p-3 text-right">Действие</th>
-                            </tr>
-                        </thead>
-                        <tbody id="debts-table" class="divide-y divide-slate-800/60"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- 4. ВКЛАДКА: КАТАЛОГ (только админ) -->
-        <div id="view-products" class="hidden h-full grid grid-cols-12 gap-6 admin-only">
-            <div class="col-span-4 card border rounded-2xl p-5 space-y-4">
-                <div class="border-b border-slate-800 pb-4 space-y-2">
-                    <h3 class="text-sm font-bold mb-1">Загрузка товаров</h3>
-                    <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="hidden" onchange="handleExcelImport(event)">
-                    <button type="button" onclick="document.getElementById('excel-file-input').click()" 
-                        class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition">
-                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
-                        <span>Импорт из Excel (.xlsx)</span>
-                    </button>
-                    <button type="button" onclick="downloadExcelSample()" 
-                        class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition">
-                        <i data-lucide="download" class="w-3.5 h-3.5 text-emerald-400"></i>
-                        <span>Скачать пример XLSX</span>
-                    </button>
-                </div>
-
-                <h3 class="text-sm font-bold border-b border-slate-800 pb-3" id="form-title">Новый товар</h3>
-                <form id="add-prod-form" class="space-y-3">
-                    <input type="hidden" id="p-edit-id" value="">
-                    <div>
-                        <label class="block text-[10px] font-semibold text-slate-400 mb-1 uppercase">Штрихкод</label>
-                        <input type="text" id="p-barcode" required class="w-full input-field border rounded-xl px-3 py-2 text-xs">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-semibold text-slate-400 mb-1 uppercase">Наименование</label>
-                        <input type="text" id="p-name" required class="w-full input-field border rounded-xl px-3 py-2 text-xs">
-                    </div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <div>
-                            <label class="block text-[10px] font-semibold text-slate-400 mb-1 uppercase">Продажа (₸)</label>
-                            <input type="number" id="p-price" required min="0" class="w-full input-field border rounded-xl px-3 py-2 text-xs">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-semibold text-slate-400 mb-1 uppercase">Закуп (₸)</label>
-                            <input type="number" id="p-cost" required min="0" class="w-full input-field border rounded-xl px-3 py-2 text-xs">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-semibold text-slate-400 mb-1 uppercase">Остаток (шт)</label>
-                        <input type="number" id="p-stock" required min="0" class="w-full input-field border rounded-xl px-3 py-2 text-xs">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-semibold text-slate-400 mb-1 uppercase">Мин. остаток (критический)</label>
-                        <input type="number" id="p-min-stock" min="0" value="5" class="w-full input-field border rounded-xl px-3 py-2 text-xs">
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <input type="checkbox" id="p-necessity" class="rounded border-slate-600 text-emerald-600 focus:ring-emerald-500">
-                        <label for="p-necessity" class="text-xs text-slate-300">Товар первой необходимости</label>
-                    </div>
-                    <div class="flex gap-2">
-                        <button type="submit" id="btn-save-prod" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition">
-                            Сохранить в базу
-                        </button>
-                        <button type="button" id="btn-cancel-edit" onclick="cancelEdit()" class="hidden px-3 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-xl text-xs transition">
-                            Отмена
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <div class="col-span-8 card border rounded-2xl p-5 flex flex-col">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-bold">Номенклатура</h3>
-                    <span class="text-[10px] text-amber-400 flex items-center gap-1">
-                        <i data-lucide="alert-triangle" class="w-3 h-3"></i>
-                        Красные строки — критический остаток (нужно заказать)
-                    </span>
-                </div>
-                <div class="overflow-y-auto flex-1">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-950/50 text-slate-400 uppercase border-b border-slate-800">
-                            <tr>
-                                <th class="p-3">Штрихкод</th>
-                                <th class="p-3">Наименование</th>
-                                <th class="p-3">Цена</th>
-                                <th class="p-3">Закуп</th>
-                                <th class="p-3">Остаток</th>
-                                <th class="p-3">Статус</th>
-                                <th class="p-3 text-right">Управление</th>
-                            </tr>
-                        </thead>
-                        <tbody id="catalog-table" class="divide-y divide-slate-800/60"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-    </main>
-
-    <!-- Шаблон печати чека -->
-    <div id="printable-receipt" class="hidden">
-        <div style="width: 250px; font-family: monospace; font-size: 11px;">
-            <div style="text-align: center; margin-bottom: 8px;">
-                <h3 style="font-size: 14px; font-weight: bold; margin: 0;" id="pr-store">uMag POS</h3>
-                <div id="pr-date"></div>
-                <div>Продавец: <span id="pr-seller"></span></div>
-                <div>Клиент: <span id="pr-client"></span></div>
-            </div>
-            <div style="border-top: 1px dashed #000; margin: 5px 0;"></div>
-            <div id="pr-items"></div>
-            <div style="border-top: 1px dashed #000; margin: 5px 0;"></div>
-            <div style="display: flex; justify-content: space-between;">
-                <span>Оплата:</span><span id="pr-paytype"></span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; margin-top: 4px;">
-                <span>ИТОГО:</span><span id="pr-total"></span>
-            </div>
-        </div>
+      </div>
     </div>
 
-    <!-- Шаблон печати отчёта -->
-    <div id="printable-report" class="hidden">
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #000;">
-            <h2 style="margin: 0 0 4px 0;" id="rep-title">Отчёт за сегодня</h2>
-            <div id="rep-meta" style="font-size: 12px; margin-bottom: 16px;"></div>
-            <div id="rep-stats" style="margin-bottom: 16px; font-size: 13px;"></div>
-            <table id="rep-table" style="width:100%; border-collapse: collapse; font-size: 11px;">
-                <thead>
-                    <tr style="background:#f1f5f9;">
-                        <th style="border:1px solid #cbd5e1; padding:6px; text-align:left;">Время</th>
-                        <th style="border:1px solid #cbd5e1; padding:6px; text-align:left;">Покупатель</th>
-                        <th style="border:1px solid #cbd5e1; padding:6px; text-align:left;">Оплата</th>
-                        <th style="border:1px solid #cbd5e1; padding:6px; text-align:left;">Состав</th>
-                        <th style="border:1px solid #cbd5e1; padding:6px; text-align:right;">Сумма</th>
-                    </tr>
-                </thead>
-                <tbody id="rep-tbody"></tbody>
-            </table>
-        </div>
+    <div class="w-72 shrink-0 flex flex-col gap-1.5">
+      <div class="grid grid-cols-3 gap-1.5 flex-1">
+        <button onclick="showQuickPanel()" class="pos-btn text-xs uppercase p-2">БЫСТРЫЕ<br>ТОВАРЫ</button>
+        <button onclick="openQtyPad()" class="pos-btn text-xs uppercase p-2">КОЛ-ВО</button>
+        <button onclick="incSelectedQty(1)" class="pos-btn text-2xl font-bold">+</button>
+        <button onclick="openUniversalProduct()" class="pos-btn text-[11px] uppercase p-1">УНИВЕРС.<br>ТОВАР</button>
+        <button onclick="holdCart()" class="pos-btn text-xs uppercase p-2">ОТЛОЖИТЬ<br>ЧЕК</button>
+        <button onclick="incSelectedQty(-1)" class="pos-btn text-2xl font-bold">−</button>
+        <button onclick="clearCart()" class="pos-btn text-xs uppercase p-2 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700">ОЧИСТИТЬ<br>ЧЕК</button>
+        <button onclick="removeSelectedLine()" class="pos-btn text-xs uppercase p-2 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-700">УДАЛИТЬ<br>СТРОКУ</button>
+        <button onclick="manualSync()" class="pos-btn text-xs uppercase p-2">СИНХР.<br>ОБЛАКО</button>
+      </div>
+      <button onclick="openPayment()" class="h-16 rounded-xl bg-[#00c4b4] hover:bg-[#00b3a4] text-white font-extrabold text-xl tracking-wider shadow-md uppercase flex items-center justify-center">ОПЛАТА</button>
+      <button onclick="printCurrentReceipt()" class="h-10 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase flex items-center justify-center gap-1">
+        <i data-lucide="printer" class="w-4 h-4"></i> ПЕЧАТЬ ЧЕКА
+      </button>
     </div>
+  </div>
 
-    <!-- JS Логика -->
-    <script>
-        let products = [];
-        let cart = [];
-        let sales = [];
-        let debtors = [];
-        let currentRole = null; // 'seller' | 'admin'
-        let currentUserName = '';
-        let currentUserEmail = '';
-        let currentUserUid = '';
-        let storeName = 'Мой магазин';
-        const CRITICAL_DEFAULT = 5;
+  <!-- 2. HELD -->
+  <div id="view-held" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-auto scroll-thin">
+    <h2 class="text-lg font-bold mb-3">Отложенные чеки</h2>
+    <div id="held-list" class="grid grid-cols-2 gap-3"></div>
+  </div>
 
-        // ——— Тема ———
-        function applyTheme(theme) {
-            const html = document.documentElement;
-            if (theme === 'light') {
-                html.classList.add('light');
-                html.classList.remove('dark');
-                document.querySelectorAll('.theme-icon-sun').forEach(el => el.classList.remove('hidden'));
-                document.querySelectorAll('.theme-icon-moon').forEach(el => el.classList.add('hidden'));
-            } else {
-                html.classList.remove('light');
-                html.classList.add('dark');
-                document.querySelectorAll('.theme-icon-sun').forEach(el => el.classList.add('hidden'));
-                document.querySelectorAll('.theme-icon-moon').forEach(el => el.classList.remove('hidden'));
-            }
-            localStorage.setItem('sc_theme', theme);
-        }
-        function toggleTheme() {
-            const isLight = document.documentElement.classList.contains('light');
-            applyTheme(isLight ? 'dark' : 'light');
-        }
+  <!-- 3. RETURNS -->
+  <div id="view-returns" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-auto scroll-thin">
+    <h2 class="text-lg font-bold mb-3">Возвраты товаров от покупателей</h2>
+    <div class="flex gap-2 mb-4 max-w-md">
+      <input id="return-search" type="text" placeholder="Введите № чека..." class="flex-1 bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm" style="border-color: var(--border);">
+      <button onclick="searchReceiptForReturn()" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">Найти чек</button>
+    </div>
+    <div id="return-target-receipt"></div>
+  </div>
 
-        // ——— Google Auth + роли ———
-        function showLoginError(msg) {
-            const el = document.getElementById('login-error');
-            el.textContent = msg;
-            el.classList.remove('hidden');
-        }
-        function hideLoginError() {
-            document.getElementById('login-error').classList.add('hidden');
-        }
+  <!-- 4. STOCK -->
+  <div id="view-stock_ops" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-auto scroll-thin">
+    <h2 class="text-lg font-bold mb-3">Складские операции</h2>
+    <div class="flex gap-2 mb-4 border-b pb-2" style="border-color: var(--border);">
+      <button onclick="setStockOpTab('writeoff')" id="sop-tab-writeoff" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white">Списание</button>
+      <button onclick="setStockOpTab('supplier_return')" id="sop-tab-supplier_return" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">Возврат поставщику</button>
+    </div>
+    <div class="max-w-xl space-y-3">
+      <div>
+        <label class="block text-xs font-bold mb-1">Выберите товар</label>
+        <select id="sop-product" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2 text-xs" style="border-color: var(--border);"></select>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-bold mb-1">Количество</label>
+          <input id="sop-qty" type="number" step="any" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2 text-xs" value="1" style="border-color: var(--border);">
+        </div>
+        <div>
+          <label class="block text-xs font-bold mb-1">Причина / Комментарий</label>
+          <input id="sop-reason" type="text" placeholder="Порча, брак, просрочка..." class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2 text-xs" style="border-color: var(--border);">
+        </div>
+      </div>
+      <button onclick="executeStockOp()" class="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-md">Провести операцию</button>
+    </div>
+    <h3 class="font-bold text-sm mt-6 mb-2">Журнал складских операций</h3>
+    <div id="stock-ops-log" class="border rounded-xl divide-y text-xs" style="border-color: var(--border);"></div>
+  </div>
 
-        async function loginWithGoogle() {
-            hideLoginError();
-            if (!window.auth) {
-                showLoginError('Firebase Auth не инициализирован. Проверьте firebaseConfig.');
-                return;
-            }
-            const store = (document.getElementById('login-store').value || '').trim() || 'Мой магазин';
-            storeName = store;
-            localStorage.setItem('sc_store', storeName);
+  <!-- 5. CATALOG -->
+  <div id="view-catalog" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-hidden">
+    <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <h2 class="text-lg font-bold">Каталог товаров</h2>
+        <select id="catalog-cat-filter" onchange="renderCatalog()" class="bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg px-2 py-1" style="border-color: var(--border);">
+          <option value="">Все категории</option>
+        </select>
+        <button onclick="toggleStockSort()" class="px-2 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg" style="border-color: var(--border);">Сортировать по остатку</button>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="downloadExcelTemplate()" class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold border" style="border-color: var(--border);">Шаблон Excel</button>
+        <label class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold border cursor-pointer" style="border-color: var(--border);">
+          Импорт Excel <input type="file" id="excel-file-input" accept=".xlsx,.xls,.csv" class="hidden" onchange="importExcel(event)">
+        </label>
+        <button onclick="openProductForm()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold">+ Новый товар</button>
+      </div>
+    </div>
+    <div class="flex-1 overflow-auto scroll-thin">
+      <table class="w-full text-xs">
+        <thead class="sticky top-0 uppercase border-b" style="background: var(--total-bg); border-color: var(--border); color: var(--text-muted);">
+          <tr>
+            <th class="p-2 text-left">Код / Штрихкод</th>
+            <th class="p-2 text-left">Наименование</th>
+            <th class="p-2 text-left">Категория</th>
+            <th class="p-2 text-right">Закупка</th>
+            <th class="p-2 text-right">Продажа</th>
+            <th class="p-2 text-center">Ед.</th>
+            <th class="p-2 text-right">Остаток</th>
+            <th class="p-2 text-center">Быстрый</th>
+            <th class="p-2 text-center">Действия</th>
+          </tr>
+        </thead>
+        <tbody id="catalog-table" class="divide-y" style="border-color: var(--border);"></tbody>
+      </table>
+    </div>
+  </div>
 
-            document.getElementById('login-loading').classList.remove('hidden');
-            document.getElementById('btn-google-login').disabled = true;
+  <!-- 6. REPORTS -->
+  <div id="view-reports" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-auto scroll-thin">
+    <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+      <h2 class="text-lg font-bold">Отчёты и Финансы</h2>
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="setReportPeriod('today')" id="rbtn-today" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold" style="border-color: var(--border);">Сегодня</button>
+        <button onclick="setReportPeriod('week')" id="rbtn-week" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold" style="border-color: var(--border);">Неделя</button>
+        <button onclick="setReportPeriod('all')" id="rbtn-all" class="px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg font-bold">Всё</button>
+        <button onclick="exportReportsExcel()" class="px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg font-bold">Экспорт Excel</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="report-stats"></div>
+    <h3 class="font-bold text-sm mb-2">Журнал продаж</h3>
+    <div id="report-sales-log" class="border rounded-xl divide-y text-xs" style="border-color: var(--border);"></div>
+  </div>
 
-            try {
-                const provider = new window.GoogleAuthProvider();
-                provider.setCustomParameters({ prompt: 'select_account' });
-                await window.signInWithPopup(window.auth, provider);
-                // дальше onAuthStateChanged подхватит пользователя
-            } catch (err) {
-                console.error(err);
-                let msg = err.message || 'Ошибка входа';
-                if (err.code === 'auth/popup-closed-by-user') msg = 'Окно входа закрыто';
-                if (err.code === 'auth/unauthorized-domain') msg = 'Домен не разрешён в Firebase → Authentication → Settings → Authorized domains. Добавьте ваш GitHub Pages домен.';
-                showLoginError(msg);
-            } finally {
-                document.getElementById('login-loading').classList.add('hidden');
-                document.getElementById('btn-google-login').disabled = false;
-            }
-        }
+  <!-- 7. BACKUP -->
+  <div id="view-backup" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-auto scroll-thin">
+    <h2 class="text-lg font-bold mb-3">Резервное копирование и Облако</h2>
+    <div class="space-y-4 max-w-lg">
+      <div class="p-4 border rounded-2xl" style="background: var(--total-bg); border-color: var(--border);">
+        <h3 class="font-bold text-sm mb-1">Синхронизация с Firebase</h3>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Автоматически каждые 60 минут при наличии интернета. Можно запустить вручную.</p>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="manualSync()" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">Синхронизировать сейчас</button>
+          <button onclick="pullFromCloud()" class="px-4 py-2 bg-cyan-600 text-white rounded-xl text-xs font-bold">Загрузить из облака</button>
+        </div>
+        <p id="last-sync-info" class="text-[11px] mt-2" style="color: var(--text-muted);">Последняя синхронизация: —</p>
+      </div>
+      <div class="p-4 border rounded-2xl" style="background: var(--total-bg); border-color: var(--border);">
+        <h3 class="font-bold text-sm mb-1">Скачать полную копию (Excel)</h3>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Товары, продажи, склад, отложенные — в один .xlsx</p>
+        <button onclick="exportFullExcelBackup()" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">Скачать Excel-бэкап</button>
+      </div>
+      <div class="p-4 border rounded-2xl" style="background: var(--total-bg); border-color: var(--border);">
+        <h3 class="font-bold text-sm mb-1">Восстановить из Excel</h3>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Загрузить ранее сохранённый .xlsx</p>
+        <input type="file" id="excel-backup-input" accept=".xlsx,.xls" class="hidden" onchange="importFullExcelBackup(event)">
+        <button onclick="document.getElementById('excel-backup-input').click()" class="px-4 py-2 bg-slate-800 dark:bg-slate-600 text-white rounded-xl text-xs font-bold">Загрузить Excel</button>
+      </div>
+      <div class="p-4 border rounded-2xl" style="background: var(--total-bg); border-color: var(--border);">
+        <h3 class="font-bold text-sm mb-1">Шаблон для импорта товаров</h3>
+        <button onclick="downloadExcelTemplate()" class="px-4 py-2 bg-cyan-600 text-white rounded-xl text-xs font-bold">Скачать шаблон Excel</button>
+      </div>
+    </div>
+  </div>
+</main>
 
-        async function loadOrCreateUserProfile(user) {
-            const { doc, getDoc, setDoc } = window.firestoreTools;
-            const ref = doc(window.db, 'users', user.uid);
-            const snap = await getDoc(ref);
+<!-- MODALS (payment, qty, universal, quick, product form) — same as before -->
+<div id="modal-pay" class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center no-print">
+  <div class="border rounded-2xl p-4 w-full max-w-2xl shadow-2xl" style="background: var(--bg-main); border-color: var(--border); color: var(--text-main);">
+    <div class="grid grid-cols-4 gap-2 mb-3 text-center">
+      <div class="theme-card rounded-xl p-2 border"><div class="text-[10px] font-bold" style="color: var(--text-muted);">К ОПЛАТЕ</div><div id="pay-to-pay" class="font-extrabold text-xl">0.00 ₸</div></div>
+      <div class="theme-card rounded-xl p-2 border"><div class="text-[10px] font-bold" style="color: var(--text-muted);">ПОЛУЧЕНО</div><div id="pay-received" class="font-extrabold text-xl">0.00 ₸</div></div>
+      <div class="theme-card rounded-xl p-2 border"><div class="text-[10px] font-bold" style="color: var(--text-muted);">ОСТАЛОСЬ</div><div id="pay-left" class="font-extrabold text-xl">0.00 ₸</div></div>
+      <div class="theme-card rounded-xl p-2 border"><div class="text-[10px] font-bold" style="color: var(--text-muted);">СДАЧА</div><div id="pay-change" class="font-extrabold text-xl">0.00 ₸</div></div>
+    </div>
+    <div class="flex gap-2 mb-3">
+      <button id="pay-tab-cash" onclick="setPayTab('cash')" class="flex-1 py-2 rounded-xl text-xs font-bold theme-card border">Наличные</button>
+      <button id="pay-tab-card" onclick="setPayTab('card')" class="flex-1 py-2 rounded-xl text-xs font-bold theme-card border">Kaspi / Карта</button>
+      <button id="pay-tab-mixed" onclick="setPayTab('mixed')" class="flex-1 py-2 rounded-xl text-xs font-bold bg-[#00c4b4] text-white">Смешанная</button>
+    </div>
+    <div class="grid grid-cols-12 gap-3 mb-3">
+      <div class="col-span-5 theme-card p-3 rounded-xl border">
+        <div class="text-[10px] uppercase font-bold mb-1" style="color: var(--text-muted);">Наличные</div>
+        <input id="pay-cash" type="number" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-2 py-1 text-right font-bold text-lg mb-2" value="0" oninput="recalcPay()" style="border-color: var(--border);">
+        <div class="num-pad grid grid-cols-3 gap-1.5">
+          <button type="button" onclick="payDigit('7')">7</button><button type="button" onclick="payDigit('8')">8</button><button type="button" onclick="payDigit('9')">9</button>
+          <button type="button" onclick="payDigit('4')">4</button><button type="button" onclick="payDigit('5')">5</button><button type="button" onclick="payDigit('6')">6</button>
+          <button type="button" onclick="payDigit('1')">1</button><button type="button" onclick="payDigit('2')">2</button><button type="button" onclick="payDigit('3')">3</button>
+          <button type="button" onclick="payDigit('0')">0</button><button type="button" onclick="payDigit('.')">.</button><button type="button" onclick="payBack()">⌫</button>
+        </div>
+      </div>
+      <div class="col-span-7 flex flex-col justify-between">
+        <div>
+          <div class="text-[10px] uppercase font-bold mb-1" style="color: var(--text-muted);">Kaspi / Банковская карта</div>
+          <input id="pay-card" type="number" class="w-full theme-card border rounded-lg px-3 py-1.5 text-right font-bold text-lg mb-3" value="0" oninput="recalcPay()" style="border-color: var(--border);">
+          <div class="grid grid-cols-3 gap-2">
+            <button onclick="addPayQuick(500)" class="pos-btn py-2 text-xs">+500</button>
+            <button onclick="addPayQuick(1000)" class="pos-btn py-2 text-xs">+1000</button>
+            <button onclick="addPayQuick(2000)" class="pos-btn py-2 text-xs">+2000</button>
+            <button onclick="addPayQuick(5000)" class="pos-btn py-2 text-xs">+5000</button>
+            <button onclick="addPayQuick(10000)" class="pos-btn py-2 text-xs">+10 000</button>
+            <button onclick="payExact()" class="pos-btn py-2 text-xs bg-cyan-600 text-white">БЕЗ СДАЧИ</button>
+          </div>
+        </div>
+        <button onclick="confirmPayment('debt')" class="pos-btn w-full py-3 text-xs uppercase bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700">ПРОДАЖА В ДОЛГ</button>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="closeModal('modal-pay')" class="pos-btn flex-1 py-3 text-xs uppercase">ОТМЕНА</button>
+      <button onclick="confirmPayment('paid')" class="flex-2 w-2/3 py-3 rounded-xl bg-[#00c4b4] hover:bg-[#00b3a4] text-white font-extrabold text-lg uppercase shadow-md">ЗАВЕРШИТЬ ПРОДАЖУ</button>
+    </div>
+  </div>
+</div>
 
-            if (snap.exists()) {
-                const data = snap.data();
-                return {
-                    role: data.role === 'admin' ? 'admin' : 'seller',
-                    name: data.name || user.displayName || user.email || 'Пользователь',
-                    email: data.email || user.email || '',
-                    store: data.store || storeName
-                };
-            }
+<div id="modal-qty" class="hidden fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center no-print">
+  <div class="theme-card border rounded-2xl p-5 w-80 shadow-2xl">
+    <h3 class="font-bold mb-1" id="qty-title">Количество</h3>
+    <p class="text-xs mb-3" style="color: var(--text-muted);" id="qty-subtitle"></p>
+    <input id="qty-value" type="text" class="w-full text-center text-2xl font-bold bg-slate-50 dark:bg-slate-800 border rounded-xl py-2 mb-3 focus:outline-none focus:border-emerald-600" value="1" style="border-color: var(--border);">
+    <div class="num-pad grid grid-cols-3 gap-2 mb-3">
+      <button type="button" onclick="qtyDigit('7')">7</button><button type="button" onclick="qtyDigit('8')">8</button><button type="button" onclick="qtyDigit('9')">9</button>
+      <button type="button" onclick="qtyDigit('4')">4</button><button type="button" onclick="qtyDigit('5')">5</button><button type="button" onclick="qtyDigit('6')">6</button>
+      <button type="button" onclick="qtyDigit('1')">1</button><button type="button" onclick="qtyDigit('2')">2</button><button type="button" onclick="qtyDigit('3')">3</button>
+      <button type="button" onclick="qtyDigit('.')">.</button><button type="button" onclick="qtyDigit('0')">0</button><button type="button" onclick="qtyBack()">⌫</button>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="closeModal('modal-qty')" class="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm font-bold border" style="border-color: var(--border);">Отмена</button>
+      <button onclick="confirmQty()" class="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold shadow-md">OK</button>
+    </div>
+  </div>
+</div>
 
-            // Первый вход — создаём продавца
-            const profile = {
-                email: user.email || '',
-                name: user.displayName || user.email || 'Пользователь',
-                role: 'seller',
-                store: storeName,
-                createdAt: new Date().toISOString()
-            };
-            await setDoc(ref, profile);
-            return profile;
-        }
+<div id="modal-universal" class="hidden fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center no-print">
+  <div class="theme-card border rounded-2xl p-5 w-80 shadow-2xl">
+    <h3 class="font-bold mb-3">Универсальный товар</h3>
+    <input id="uni-name" type="text" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm mb-2" value="Товар" style="border-color: var(--border);">
+    <input id="uni-price" type="number" placeholder="Цена ₸" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm mb-2" style="border-color: var(--border);">
+    <input id="uni-qty" type="number" step="any" placeholder="Кол-во" value="1" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm mb-2" style="border-color: var(--border);">
+    <select id="uni-unit" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm mb-3" style="border-color: var(--border);">
+      <option value="шт">Штучный (шт)</option>
+      <option value="кг">Весовой (кг)</option>
+      <option value="м">Метражный (м)</option>
+    </select>
+    <div class="flex gap-2">
+      <button onclick="closeModal('modal-universal')" class="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm font-bold border" style="border-color: var(--border);">Отмена</button>
+      <button onclick="addUniversal()" class="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold shadow-md">Добавить</button>
+    </div>
+  </div>
+</div>
 
-        function enterApp(profile, user) {
-            currentRole = profile.role === 'admin' ? 'admin' : 'seller';
-            currentUserName = profile.name || user.displayName || 'Пользователь';
-            currentUserEmail = profile.email || user.email || '';
-            currentUserUid = user.uid;
-            if (profile.store) storeName = profile.store;
+<div id="modal-quick" class="hidden fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center no-print">
+  <div class="theme-card border rounded-2xl p-5 w-full max-w-lg shadow-2xl">
+    <h3 class="font-bold mb-3">Быстрые товары</h3>
+    <div id="quick-grid" class="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto scroll-thin mb-4"></div>
+    <button onclick="closeModal('modal-quick')" class="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm font-bold border" style="border-color: var(--border);">Закрыть</button>
+  </div>
+</div>
 
-            document.getElementById('login-screen').classList.add('hidden');
-            applyRoleUI();
-            updateHeader();
-            lucide.createIcons();
-            if (window.db) initFirebaseSync();
-        }
+<div id="modal-prod-form" class="hidden fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center no-print overflow-y-auto">
+  <div class="theme-card border rounded-2xl p-5 w-full max-w-lg shadow-2xl my-8">
+    <h3 class="font-bold mb-3" id="prod-form-title">Редактировать товар</h3>
+    <input type="hidden" id="pf-id">
+    <div class="space-y-2 text-xs mb-4">
+      <div class="grid grid-cols-2 gap-2">
+        <div><label class="block font-semibold mb-1">Наименование</label><input id="pf-name" type="text" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+        <div><label class="block font-semibold mb-1">Категория</label><input id="pf-category" type="text" placeholder="например, Хлеб" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div><label class="block font-semibold mb-1">Штрихкод</label><input id="pf-barcode" type="text" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+        <div><label class="block font-semibold mb-1">Внутренний код</label><input id="pf-code" type="text" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <div><label class="block font-semibold mb-1">Ед. измерения</label>
+          <select id="pf-unit" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);">
+            <option value="шт">шт</option><option value="кг">кг</option><option value="м">м</option>
+          </select>
+        </div>
+        <div><label class="block font-semibold mb-1">Цена продажи</label><input id="pf-price" type="number" step="any" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+        <div><label class="block font-semibold mb-1">Закупочная цена</label><input id="pf-cost" type="number" step="any" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div><label class="block font-semibold mb-1">Остаток</label><input id="pf-stock" type="number" step="any" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+        <div><label class="block font-semibold mb-1">Мин. остаток</label><input id="pf-minstock" type="number" step="any" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" value="5" style="border-color: var(--border);"></div>
+      </div>
+      <div class="flex items-center gap-2 pt-1">
+        <input id="pf-isquick" type="checkbox" class="w-4 h-4 text-emerald-600">
+        <label for="pf-isquick" class="font-semibold">Быстрый товар</label>
+      </div>
+      <div><label class="block font-semibold mb-1">Заметка</label><input id="pf-note" type="text" class="w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2" style="border-color: var(--border);"></div>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="closeModal('modal-prod-form')" class="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-xs font-bold border" style="border-color: var(--border);">Отмена</button>
+      <button onclick="saveProductForm()" class="flex-1 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">Сохранить</button>
+    </div>
+  </div>
+</div>
 
-        async function doLogout() {
-            try {
-                if (window.auth && window.signOut) await window.signOut(window.auth);
-            } catch (e) { console.warn(e); }
-            currentRole = null;
-            currentUserName = '';
-            currentUserEmail = '';
-            currentUserUid = '';
-            document.getElementById('login-screen').classList.remove('hidden');
-            hideLoginError();
-            switchTab('pos');
-        }
+<div id="printable-receipt" class="p-4 font-mono text-xs text-black w-64 bg-white" style="display:none;"></div>
+<div id="printable-barcode" class="p-4 font-mono text-xs text-black bg-white flex flex-col items-center justify-center" style="display:none;">
+  <div id="bc-title" class="font-bold text-sm mb-1"></div>
+  <svg id="bc-svg"></svg>
+  <div id="bc-price" class="font-bold text-base mt-1"></div>
+</div>
 
-        function applyRoleUI() {
-            const isAdmin = currentRole === 'admin';
-            document.querySelectorAll('.admin-only').forEach(el => {
-                el.style.display = isAdmin ? '' : 'none';
-            });
-            const profitCard = document.getElementById('stat-profit-card');
-            if (profitCard) profitCard.style.display = isAdmin ? '' : 'none';
-        }
+<script>
+let products=[], sales=[], stockOps=[], cart=[], heldCarts=[];
+let selectedLine=-1, currentUserName='Кассир', receiptCounter=1001, pendingProduct=null, qtyMode='add', payTab='mixed', currentStockOpTab='writeoff', sortStockAsc=false;
+let reportPeriod = 'all';
+let currentUser = null;          // Firebase user
+let isOnline = navigator.onLine;
+let autoSyncTimer = null;
+let lastSyncTime = null;
+const LS={p:'sc_products_v2',s:'sc_sales_v2',ops:'sc_ops_v2',h:'sc_held_v2',c:'sc_rc_v2', theme:'sc_theme', lastSync:'sc_last_sync'};
 
-        function updateHeader() {
-            document.getElementById('header-store-name').textContent = storeName;
-            const roleLabel = currentRole === 'admin' ? 'Админ' : 'Продавец';
-            document.getElementById('header-user-info').textContent = `${roleLabel}: ${currentUserName}`;
-        }
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+function toNum(v){const n=parseFloat(v);return Number.isFinite(n)?n:0}
+function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function closeModal(id){document.getElementById(id).classList.add('hidden')}
+function openModal(id){document.getElementById(id).classList.remove('hidden')}
 
-        function setupAuthListener() {
-            if (!window.auth || !window.onAuthStateChanged) return;
-            window.onAuthStateChanged(window.auth, async (user) => {
-                if (!user) {
-                    currentRole = null;
-                    document.getElementById('login-screen').classList.remove('hidden');
-                    return;
-                }
-                if (!window.db) {
-                    showLoginError('Firestore не подключён');
-                    return;
-                }
-                try {
-                    document.getElementById('login-loading').classList.remove('hidden');
-                    const profile = await loadOrCreateUserProfile(user);
-                    enterApp(profile, user);
-                } catch (err) {
-                    console.error(err);
-                    showLoginError('Не удалось загрузить профиль: ' + (err.message || err));
-                } finally {
-                    document.getElementById('login-loading').classList.add('hidden');
-                }
-            });
-        }
+function loadLocal(){
+  try{
+    products=JSON.parse(localStorage.getItem(LS.p)||'[]');
+    sales=JSON.parse(localStorage.getItem(LS.s)||'[]');
+    stockOps=JSON.parse(localStorage.getItem(LS.ops)||'[]');
+    heldCarts=JSON.parse(localStorage.getItem(LS.h)||'[]');
+    receiptCounter=parseInt(localStorage.getItem(LS.c)||'1001',10)||1001;
+    lastSyncTime = localStorage.getItem(LS.lastSync);
+    const theme = localStorage.getItem(LS.theme);
+    if(theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.getElementById('theme-icon').textContent = '☀️';
+    }
+  }catch(e){console.error(e)}
+}
+function saveLocal(){
+  localStorage.setItem(LS.p,JSON.stringify(products));
+  localStorage.setItem(LS.s,JSON.stringify(sales));
+  localStorage.setItem(LS.ops,JSON.stringify(stockOps));
+  localStorage.setItem(LS.h,JSON.stringify(heldCarts));
+  localStorage.setItem(LS.c,String(receiptCounter));
+}
 
-        // ——— Инициализация ———
-        window.addEventListener('DOMContentLoaded', () => {
-            lucide.createIcons();
-            const savedTheme = localStorage.getItem('sc_theme') || 'dark';
-            applyTheme(savedTheme);
+function toggleTheme(){
+  const html = document.documentElement;
+  const isDark = html.classList.toggle('dark');
+  localStorage.setItem(LS.theme, isDark ? 'dark' : 'light');
+  document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
+  if(window.lucide) lucide.createIcons();
+}
 
-            const savedStore = localStorage.getItem('sc_store');
-            if (savedStore) {
-                storeName = savedStore;
-                const storeInput = document.getElementById('login-store');
-                if (storeInput) storeInput.value = storeName;
-            }
+function seedDemoIfEmpty(){
+  if(products.length>0) return;
+  products=[
+    {id:uid(), barcode:'482001', code:'101', name:'Хлеб белый', category:'Хлеб', unit:'шт', price:180, cost:140, stock:25, minStock:5, isQuick:true, note:'Свежая выпечка'},
+    {id:uid(), barcode:'482002', code:'102', name:'Батон', category:'Хлеб', unit:'шт', price:220, cost:170, stock:15, minStock:5, isQuick:true, note:''},
+    {id:uid(), barcode:'482003', code:'103', name:'Молоко 2.5%', category:'Молочные продукты', unit:'шт', price:450, cost:360, stock:30, minStock:8, isQuick:true, note:''},
+    {id:uid(), barcode:'482004', code:'104', name:'Сахар (весовой)', category:'Бакалея', unit:'кг', price:500, cost:410, stock:100, minStock:15, isQuick:false, note:''},
+    {id:uid(), barcode:'482005', code:'105', name:'Кабель электрический', category:'Хозтовары', unit:'м', price:350, cost:250, stock:50, minStock:10, isQuick:false, note:''}
+  ];
+  saveLocal();
+}
 
-            setTimeout(() => {
-                setupAuthListener();
-                // если уже залогинен — onAuthStateChanged сам вызовет enterApp
-                // данные products/sales подтянутся после enterApp
-            }, 800);
+// ═══════════════ ONLINE / OFFLINE + AUTO SYNC ═══════════════
 
-            // Инициализация дат отчёта
-            const todayISO = toISODate(new Date());
-            const dateEl = document.getElementById('report-date');
-            const fromEl = document.getElementById('report-date-from');
-            const toEl = document.getElementById('report-date-to');
-            if (dateEl) dateEl.value = todayISO;
-            if (fromEl) {
-                const weekAgo = new Date();
-                weekAgo.setDate(weekAgo.getDate() - 6);
-                fromEl.value = toISODate(weekAgo);
-            }
-            if (toEl) toEl.value = todayISO;
-            document.getElementById('report-date-label').textContent = new Date().toLocaleDateString('ru-RU');
+function updateOnlineBadge(){
+  const badge = document.getElementById('online-badge');
+  if(!badge) return;
+  if(isOnline && currentUser){
+    badge.textContent = 'ОНЛАЙН';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500';
+  } else if(isOnline){
+    badge.textContent = 'ИНТЕРНЕТ';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500';
+  } else {
+    badge.textContent = 'ОФЛАЙН';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500';
+  }
+}
+
+function updateLastSyncInfo(){
+  const el = document.getElementById('last-sync-info');
+  if(!el) return;
+  if(lastSyncTime){
+    el.textContent = 'Последняя синхронизация: ' + new Date(lastSyncTime).toLocaleString('ru-RU');
+  } else {
+    el.textContent = 'Последняя синхронизация: —';
+  }
+}
+
+function startAutoSync(){
+  if(autoSyncTimer) clearInterval(autoSyncTimer);
+  // каждые 60 минут
+  autoSyncTimer = setInterval(() => {
+    if(navigator.onLine && currentUser && window.firebaseReady){
+      console.log('[AutoSync] Запуск автоматической синхронизации...');
+      doSync(true);
+    }
+  }, 60 * 60 * 1000); // 1 час
+}
+
+async function doSync(silent = false){
+  if(!currentUser || !window.firebaseReady){
+    if(!silent) alert('Войдите через Google, чтобы синхронизировать данные');
+    return;
+  }
+  if(!navigator.onLine){
+    if(!silent) alert('Нет интернета');
+    return;
+  }
+
+  const syncBadge = document.getElementById('sync-badge');
+  if(syncBadge){ syncBadge.classList.remove('hidden'); syncBadge.textContent = 'СИНХР...'; }
+
+  try {
+    const data = {
+      products,
+      sales,
+      stockOps,
+      heldCarts,
+      receiptCounter,
+      cashierName: currentUserName
+    };
+    await window.fbUploadAll(currentUser.uid, data);
+    lastSyncTime = new Date().toISOString();
+    localStorage.setItem(LS.lastSync, lastSyncTime);
+    updateLastSyncInfo();
+    if(syncBadge){ syncBadge.textContent = 'OK'; setTimeout(()=>syncBadge.classList.add('hidden'), 2000); }
+    if(!silent) alert('Данные успешно отправлены в Firebase!');
+  } catch(e) {
+    console.error(e);
+    if(syncBadge){ syncBadge.textContent = 'ОШИБКА'; setTimeout(()=>syncBadge.classList.add('hidden'), 3000); }
+    if(!silent) alert('Ошибка синхронизации: ' + e.message);
+  }
+}
+
+async function pullFromCloud(){
+  if(!currentUser || !window.firebaseReady){
+    return alert('Войдите через Google');
+  }
+  if(!navigator.onLine) return alert('Нет интернета');
+  if(!confirm('Загрузить данные из облака? Локальные данные будут заменены.')) return;
+
+  const syncBadge = document.getElementById('sync-badge');
+  if(syncBadge){ syncBadge.classList.remove('hidden'); syncBadge.textContent = 'ЗАГРУЗКА...'; }
+
+  try {
+    const data = await window.fbDownloadAll(currentUser.uid);
+    if(!data) throw new Error('Не удалось загрузить');
+    products = data.products || [];
+    sales = data.sales || [];
+    stockOps = data.stockOps || [];
+    heldCarts = data.heldCarts || [];
+    receiptCounter = data.receiptCounter || 1001;
+    if(data.cashierName) currentUserName = data.cashierName;
+    saveLocal();
+    renderAll();
+    lastSyncTime = new Date().toISOString();
+    localStorage.setItem(LS.lastSync, lastSyncTime);
+    updateLastSyncInfo();
+    if(syncBadge){ syncBadge.textContent = 'OK'; setTimeout(()=>syncBadge.classList.add('hidden'), 2000); }
+    alert('Данные успешно загружены из облака!');
+  } catch(e) {
+    console.error(e);
+    if(syncBadge){ syncBadge.textContent = 'ОШИБКА'; setTimeout(()=>syncBadge.classList.add('hidden'), 3000); }
+    alert('Ошибка загрузки: ' + e.message);
+  }
+}
+
+function manualSync(){
+  doSync(false);
+}
+
+// ═══════════════ AUTH ═══════════════
+
+async function loginWithGoogle(){
+  if(window.firebaseConfigMissing || !window.firebaseReady){
+    return alert('Firebase не настроен.\n\nОткройте код и вставьте свои ключи из Firebase Console (Project settings → General → Your apps).');
+  }
+  try {
+    const user = await window.fbSignInWithGoogle();
+    currentUser = user;
+    currentUserName = user.displayName || user.email || 'Google User';
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('hdr-cashier').textContent = currentUserName;
+    document.getElementById('btn-logout').classList.remove('hidden');
+    loadLocal();
+    seedDemoIfEmpty();
+    updateClock(); setInterval(updateClock, 1000);
+    renderAll();
+    updateOnlineBadge();
+    startAutoSync();
+    // После входа сразу пробуем синхронизировать
+    if(navigator.onLine) setTimeout(() => doSync(true), 1500);
+    if(window.lucide) lucide.createIcons();
+  } catch(e) {
+    console.error(e);
+    alert('Ошибка входа через Google: ' + (e.message || e));
+  }
+}
+
+function enterOfflineMode(){
+  currentUser = null;
+  currentUserName = document.getElementById('login-cashier').value.trim() || 'Кассир';
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('btn-logout').classList.add('hidden');
+  loadLocal(); seedDemoIfEmpty();
+  document.getElementById('hdr-cashier').textContent = currentUserName;
+  updateClock(); setInterval(updateClock, 1000);
+  renderAll();
+  updateOnlineBadge();
+  startAutoSync(); // даже в офлайне таймер работает — подключится, когда появится интернет + Google-сессия
+  if(window.lucide) lucide.createIcons();
+}
+
+async function logout(){
+  if(currentUser && window.fbSignOut){
+    try { await window.fbSignOut(); } catch(e){}
+  }
+  currentUser = null;
+  document.getElementById('btn-logout').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+  updateOnlineBadge();
+  if(autoSyncTimer) clearInterval(autoSyncTimer);
+}
+
+function updateClock(){
+  const el=document.getElementById('hdr-time');
+  if(el) el.textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+}
+
+// Online/offline listeners
+window.addEventListener('online', () => {
+  isOnline = true;
+  updateOnlineBadge();
+  // Как только появился интернет и есть Google-пользователь — синхронизируем
+  if(currentUser && window.firebaseReady){
+    console.log('[Online] Интернет появился → синхронизация');
+    doSync(true);
+  }
+});
+window.addEventListener('offline', () => {
+  isOnline = false;
+  updateOnlineBadge();
+});
+
+// ═══════════════ UI TABS & REST (unchanged logic) ═══════════════
+
+function switchMainTab(tab){
+  ['sales','held','returns','stock_ops','catalog','reports','backup'].forEach(t=>{
+    const v=document.getElementById('view-'+t);
+    if(v){v.classList.add('hidden');v.classList.remove('flex')}
+    const b=document.getElementById('mtab-'+t);
+    if(b) b.className='px-3 py-1 rounded text-xs font-bold uppercase text-emerald-100 hover:bg-emerald-700/50';
+  });
+  const view=document.getElementById('view-'+tab);
+  if(view){view.classList.remove('hidden');view.classList.add('flex')}
+  const btn=document.getElementById('mtab-'+tab);
+  if(btn) btn.className='tab-active px-3 py-1 rounded text-xs font-bold uppercase';
+  if(tab==='catalog') renderCatalog();
+  if(tab==='held') renderHeldCarts();
+  if(tab==='reports') renderReports();
+  if(tab==='stock_ops') renderStockOps();
+  if(tab==='backup') updateLastSyncInfo();
+}
+
+function onSearchInput(){
+  const q=document.getElementById('search-input').value.trim().toLowerCase();
+  const box=document.getElementById('search-suggest');
+  if(!q){box.classList.add('hidden');return}
+  const matches=products.filter(p=>(p.name||'').toLowerCase().includes(q)||(p.barcode||'').includes(q)||(p.code||'').includes(q));
+  box.innerHTML=matches.map(p=>`<div class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-xs flex justify-between" onclick="selectProduct('${p.id}')">
+    <span>${safe(p.name)} (${p.unit})</span><span class="font-bold text-emerald-600">${toNum(p.price)} ₸</span></div>`).join('');
+  box.classList.remove('hidden');
+}
+
+function onSearchKey(e){
+  if(e.key==='Enter'){
+    const q=document.getElementById('search-input').value.trim();
+    const p=products.find(x=>x.barcode===q || x.code===q || (x.name||'').toLowerCase()===q.toLowerCase());
+    if(p) selectProduct(p.id);
+  }
+}
+
+function selectProduct(id){
+  document.getElementById('search-suggest').classList.add('hidden');
+  document.getElementById('search-input').value='';
+  const p=products.find(x=>x.id===id); if(!p) return;
+  pendingProduct=p; qtyMode='add';
+  document.getElementById('qty-title').textContent='Введите количество ('+p.unit+')';
+  document.getElementById('qty-subtitle').textContent=p.name+' — '+p.price+' ₸/'+p.unit;
+  document.getElementById('qty-value').value=p.unit==='шт'?'1':'0.5';
+  openModal('modal-qty');
+}
+
+function qtyDigit(d){ const el=document.getElementById('qty-value'); if(el.value==='1' && d!=='.') el.value=d; else el.value+=d; }
+function qtyBack(){ const el=document.getElementById('qty-value'); el.value=el.value.slice(0,-1)||'1'; }
+
+function confirmQty(){
+  let q=toNum(document.getElementById('qty-value').value);
+  if(q<=0) return alert('Укажите корректное количество');
+  if(pendingProduct && pendingProduct.unit==='шт') q = Math.round(q);
+  if(qtyMode==='edit' && selectedLine>=0){
+    cart[selectedLine].qty=q;
+    cart[selectedLine].sum=+(toNum(cart[selectedLine].price)*q).toFixed(2);
+    closeModal('modal-qty'); renderReceipt(); return;
+  }
+  if(!pendingProduct) return;
+  cart.push({ id: pendingProduct.id, name: pendingProduct.name, unit: pendingProduct.unit || 'шт', price: toNum(pendingProduct.price), cost: toNum(pendingProduct.cost), qty: q, sum: +(toNum(pendingProduct.price)*q).toFixed(2) });
+  closeModal('modal-qty'); pendingProduct=null; selectedLine=cart.length-1; renderReceipt();
+}
+
+function renderReceipt(){
+  const tbody=document.getElementById('receipt-lines');
+  let total=0;
+  tbody.innerHTML=cart.map((item,i)=>{
+    total+=toNum(item.sum);
+    const sel=i===selectedLine?'selected':'';
+    return `<tr class="${sel} cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50" onclick="selectedLine=${i};renderReceipt()">
+      <td class="p-2" style="color: var(--text-muted);">${i+1}</td>
+      <td class="p-2 font-semibold">${safe(item.name)}</td>
+      <td class="p-2 text-right">${toNum(item.price).toFixed(2)} ₸</td>
+      <td class="p-2 text-center font-bold">${item.qty}</td>
+      <td class="p-2 text-center" style="color: var(--text-muted);">${item.unit}</td>
+      <td class="p-2 text-right font-bold">${toNum(item.sum).toFixed(2)} ₸</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('total-sum').textContent=total.toFixed(2)+' ₸';
+  document.getElementById('receipt-num').textContent=receiptCounter;
+  document.getElementById('cart-items-count').textContent=cart.length;
+}
+
+function incSelectedQty(delta){
+  if(selectedLine<0 || !cart[selectedLine]) return;
+  const step = cart[selectedLine].unit === 'шт' ? 1 : 0.1;
+  cart[selectedLine].qty = Math.max(step, +(cart[selectedLine].qty + delta*step).toFixed(3));
+  cart[selectedLine].sum = +(cart[selectedLine].qty * cart[selectedLine].price).toFixed(2);
+  renderReceipt();
+}
+
+function removeSelectedLine(){ if(selectedLine<0 || !cart[selectedLine]) return; cart.splice(selectedLine, 1); selectedLine = cart.length - 1; renderReceipt(); }
+function clearCart(){ if(!cart.length) return; if(confirm('Очистить текущий чек?')){ cart=[]; selectedLine=-1; renderReceipt(); } }
+
+function openQtyPad(){
+  if(selectedLine<0 || !cart[selectedLine]) return;
+  qtyMode='edit'; pendingProduct=cart[selectedLine];
+  document.getElementById('qty-title').textContent='Изменить количество ('+cart[selectedLine].unit+')';
+  document.getElementById('qty-subtitle').textContent=cart[selectedLine].name;
+  document.getElementById('qty-value').value=cart[selectedLine].qty;
+  openModal('modal-qty');
+}
+
+function holdCart(){
+  if(!cart.length) return alert('Чек пуст');
+  const customer = document.getElementById('cart-customer').value.trim();
+  heldCarts.push({ id: uid(), date: new Date().toLocaleString('ru-RU'), customer, items: [...cart] });
+  cart=[]; selectedLine=-1; document.getElementById('cart-customer').value='';
+  saveLocal(); renderReceipt(); updateHeldBadge();
+  alert('Чек успешно отложен');
+}
+
+function updateHeldBadge(){ document.getElementById('held-count').textContent=heldCarts.length; }
+
+function renderHeldCarts(){
+  const container=document.getElementById('held-list');
+  updateHeldBadge();
+  if(!heldCarts.length){ container.innerHTML='<p class="text-xs" style="color: var(--text-muted);">Нет отложенных чеков</p>'; return; }
+  container.innerHTML=heldCarts.map((h,i)=>`
+    <div class="p-3 border rounded-xl flex flex-col justify-between" style="background: var(--total-bg); border-color: var(--border);">
+      <div>
+        <div class="font-bold text-xs">Чек от ${h.date}</div>
+        <div class="text-xs text-emerald-600 font-semibold mb-1">Покупатель: ${safe(h.customer||'Не указан')}</div>
+        <div class="text-[11px] mb-2" style="color: var(--text-muted);">${h.items.map(x=>x.name+' ('+x.qty+' '+x.unit+')').join(', ')}</div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="restoreHeldCart(${i})" class="flex-1 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold">Восстановить</button>
+        <button onclick="deleteHeldCart(${i})" class="px-3 py-1.5 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 rounded-lg text-xs font-bold">Удалить</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function restoreHeldCart(idx){
+  if(cart.length && !confirm('Текущий чек не пуст. Перезаписать?')) return;
+  cart = [...heldCarts[idx].items];
+  document.getElementById('cart-customer').value = heldCarts[idx].customer || '';
+  heldCarts.splice(idx, 1);
+  saveLocal(); switchMainTab('sales'); renderReceipt();
+}
+function deleteHeldCart(idx){ heldCarts.splice(idx, 1); saveLocal(); renderHeldCarts(); }
+
+function showQuickPanel(){
+  const grid=document.getElementById('quick-grid');
+  const quickProds = products.filter(p=>p.isQuick);
+  grid.innerHTML=quickProds.map(p=>`
+    <button onclick="selectProduct('${p.id}');closeModal('modal-quick')" class="pos-btn p-3 text-xs flex flex-col">
+      <b>${safe(p.name)}</b><span class="text-emerald-600 font-bold">${p.price} ₸ / ${p.unit}</span>
+    </button>
+  `).join('');
+  openModal('modal-quick');
+}
+
+function openPayment(){
+  if(!cart.length) return alert('Чек пуст');
+  const total=cart.reduce((s,x)=>s+toNum(x.sum),0);
+  document.getElementById('pay-to-pay').textContent=total.toFixed(2)+' ₸';
+  document.getElementById('pay-cash').value=total;
+  document.getElementById('pay-card').value=0;
+  setPayTab('mixed'); openModal('modal-pay');
+}
+
+function setPayTab(t){
+  payTab=t;
+  const total=cart.reduce((s,x)=>s+toNum(x.sum),0);
+  if(t==='cash'){ document.getElementById('pay-cash').value=total; document.getElementById('pay-card').value=0; }
+  if(t==='card'){ document.getElementById('pay-cash').value=0; document.getElementById('pay-card').value=total; }
+  ['cash','card','mixed'].forEach(x=>{
+    const el=document.getElementById('pay-tab-'+x);
+    if(x===t) el.className='flex-1 py-2 rounded-xl text-xs font-bold bg-[#00c4b4] text-white';
+    else el.className='flex-1 py-2 rounded-xl text-xs font-bold theme-card border';
+  });
+  recalcPay();
+}
+
+function payDigit(d){ const el=document.getElementById('pay-cash'); if(el.value==='0' && d!=='.') el.value=d; else el.value+=d; recalcPay(); }
+function payBack(){ const el=document.getElementById('pay-cash'); el.value=el.value.slice(0,-1)||'0'; recalcPay(); }
+function addPayQuick(n){ const el=document.getElementById('pay-cash'); el.value=toNum(el.value)+n; recalcPay(); }
+function payExact(){ const total=cart.reduce((s,x)=>s+toNum(x.sum),0); document.getElementById('pay-cash').value=total; recalcPay(); }
+
+function recalcPay(){
+  const total=cart.reduce((s,x)=>s+toNum(x.sum),0);
+  const cash=toNum(document.getElementById('pay-cash').value);
+  const card=toNum(document.getElementById('pay-card').value);
+  const received=cash+card;
+  document.getElementById('pay-received').textContent=received.toFixed(2)+' ₸';
+  document.getElementById('pay-left').textContent=Math.max(0,total-received).toFixed(2)+' ₸';
+  document.getElementById('pay-change').textContent=Math.max(0,received-total).toFixed(2)+' ₸';
+}
+
+function confirmPayment(type){
+  const total=cart.reduce((s,x)=>s+toNum(x.sum),0);
+  const cash=toNum(document.getElementById('pay-cash').value);
+  const card=toNum(document.getElementById('pay-card').value);
+  const customer=document.getElementById('cart-customer').value.trim();
+  if(type==='debt' && !customer) return alert('Укажите ФИО или телефон покупателя для продажи в долг!');
+  if(type==='paid' && (cash + card) < total - 0.01) return alert('Сумма оплаты меньше итога.');
+  const costTotal = cart.reduce((s,x)=>s + (toNum(x.cost) * toNum(x.qty)), 0);
+  const sale = {
+    id: uid(), num: receiptCounter, date: new Date().toISOString(), displayTime: new Date().toLocaleString('ru-RU'),
+    items: [...cart], total, costTotal, profit: total - costTotal,
+    cash: type==='debt'? 0 : cash, card: type==='debt'? 0 : card, isDebt: type==='debt',
+    customer, cashier: currentUserName
+  };
+  cart.forEach(cItem=>{ const p=products.find(x=>x.id===cItem.id); if(p) p.stock = +(p.stock - cItem.qty).toFixed(3); });
+  sales.push(sale);
+  receiptCounter++;
+  printReceiptData(sale);
+  cart=[]; selectedLine=-1; document.getElementById('cart-customer').value='';
+  saveLocal(); closeModal('modal-pay'); renderReceipt();
+  // После продажи — быстрая синхронизация, если онлайн
+  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 500);
+  alert(type==='debt'?'Продажа в долг оформлена!':'Продажа успешно завершена!');
+}
+
+function printReceiptData(sale){
+  const pr = document.getElementById('printable-receipt');
+  pr.style.display = 'block';
+  pr.innerHTML = `
+    <div style="text-align:center; font-weight:bold; margin-bottom:6px; font-size:14px;">SellCount POS</div>
+    <div style="text-align:center; font-size:11px; margin-bottom:4px;">Чек № ${sale.num}</div>
+    <div>Дата: ${sale.displayTime}</div>
+    <div>Кассир: ${safe(sale.cashier)}</div>
+    ${sale.customer ? '<div>Покупатель: '+safe(sale.customer)+'</div>':''}
+    <hr style="margin:6px 0; border:none; border-top:1px dashed #000;">
+    ${sale.items.map(i=>`<div style="margin-bottom:4px;"><div>${safe(i.name)}</div><div style="display:flex; justify-content:space-between;"><span>${i.qty} ${i.unit} × ${toNum(i.price).toFixed(2)}</span><span>${toNum(i.sum).toFixed(2)} ₸</span></div></div>`).join('')}
+    <hr style="margin:6px 0; border:none; border-top:1px dashed #000;">
+    <div style="font-weight:bold; font-size:15px; display:flex; justify-content:space-between;"><span>ИТОГО:</span><span>${toNum(sale.total).toFixed(2)} ₸</span></div>
+    <div>Наличные: ${toNum(sale.cash).toFixed(2)} ₸</div>
+    <div>Карта/Kaspi: ${toNum(sale.card).toFixed(2)} ₸</div>
+    ${sale.isDebt ? '<div style="font-weight:bold; margin-top:4px;">⚠ В ДОЛГ</div>':''}
+    <div style="text-align:center; margin-top:12px; font-size:11px;">Спасибо за покупку!</div>`;
+  setTimeout(() => { window.print(); pr.style.display = 'none'; }, 200);
+}
+
+function printCurrentReceipt(){
+  if(!cart.length) return alert('Чек пуст');
+  const total = cart.reduce((s,x)=>s+toNum(x.sum),0);
+  printReceiptData({ num: receiptCounter, displayTime: new Date().toLocaleString('ru-RU'), cashier: currentUserName, customer: document.getElementById('cart-customer').value.trim(), items: [...cart], total, cash: 0, card: 0, isDebt: false });
+}
+
+function openUniversalProduct(){ document.getElementById('uni-name').value='Товар'; document.getElementById('uni-price').value=''; document.getElementById('uni-qty').value='1'; openModal('modal-universal'); }
+function addUniversal(){
+  const name=document.getElementById('uni-name').value.trim()||'Универсальный товар';
+  const price=toNum(document.getElementById('uni-price').value);
+  const qty=toNum(document.getElementById('uni-qty').value);
+  const unit=document.getElementById('uni-unit').value;
+  if(price<=0 || qty<=0) return alert('Укажите корректную цену или количество');
+  cart.push({ id:'uni-'+uid(), name, unit, price, cost:0, qty, sum:+(price*qty).toFixed(2) });
+  closeModal('modal-universal'); selectedLine=cart.length-1; renderReceipt();
+}
+
+function renderCatalog(){
+  const tbody=document.getElementById('catalog-table');
+  const catFilter=document.getElementById('catalog-cat-filter').value;
+  const categories = [...new Set(products.map(p=>p.category).filter(Boolean))];
+  const catSelect = document.getElementById('catalog-cat-filter');
+  const currentCat = catSelect.value;
+  catSelect.innerHTML = '<option value="">Все категории</option>' + categories.map(c=>`<option value="${safe(c)}">${safe(c)}</option>`).join('');
+  catSelect.value = currentCat;
+  let list = [...products];
+  if(catFilter) list = list.filter(p=>p.category===catFilter);
+  if(sortStockAsc) list.sort((a,b)=>a.stock - b.stock);
+  tbody.innerHTML=list.map(p=>{
+    const isCritical = p.stock <= (p.minStock||0);
+    return `<tr class="${isCritical ? 'bg-rose-50 dark:bg-rose-900/20' : ''}">
+      <td class="p-2 font-mono text-[11px]">${safe(p.code||'-')} / ${safe(p.barcode||'-')}</td>
+      <td class="p-2 font-bold">${safe(p.name)}</td>
+      <td class="p-2" style="color: var(--text-muted);">${safe(p.category||'-')}</td>
+      <td class="p-2 text-right">${toNum(p.cost).toFixed(2)} ₸</td>
+      <td class="p-2 text-right font-bold text-emerald-600">${toNum(p.price).toFixed(2)} ₸</td>
+      <td class="p-2 text-center">${p.unit||'шт'}</td>
+      <td class="p-2 text-right font-bold ${isCritical ? 'text-rose-600':''}">${toNum(p.stock)}</td>
+      <td class="p-2 text-center">${p.isQuick?'★':'-'}</td>
+      <td class="p-2 text-center space-x-1">
+        <button onclick="editProductForm('${p.id}')" class="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded border text-[11px]" style="border-color: var(--border);">Изм.</button>
+        <button onclick="printBarcode('${p.id}')" class="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded border text-[11px]" style="border-color: var(--border);">Штрихкод</button>
+        <button onclick="deleteProduct('${p.id}')" class="px-2 py-0.5 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 rounded border text-[11px]">Уд.</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleStockSort(){ sortStockAsc = !sortStockAsc; renderCatalog(); }
+
+function openProductForm(){
+  document.getElementById('pf-id').value='';
+  document.getElementById('pf-name').value=''; document.getElementById('pf-category').value='';
+  document.getElementById('pf-barcode').value=Date.now().toString().slice(-8);
+  document.getElementById('pf-code').value=Math.floor(100+Math.random()*900).toString();
+  document.getElementById('pf-price').value=''; document.getElementById('pf-cost').value='';
+  document.getElementById('pf-stock').value='10'; document.getElementById('pf-minstock').value='5';
+  document.getElementById('pf-isquick').checked=false; document.getElementById('pf-note').value='';
+  document.getElementById('prod-form-title').textContent='Новый товар';
+  openModal('modal-prod-form');
+}
+
+function editProductForm(id){
+  const p=products.find(x=>x.id===id); if(!p) return;
+  document.getElementById('pf-id').value=p.id;
+  document.getElementById('pf-name').value=p.name; document.getElementById('pf-category').value=p.category||'';
+  document.getElementById('pf-barcode').value=p.barcode||''; document.getElementById('pf-code').value=p.code||'';
+  document.getElementById('pf-unit').value=p.unit||'шт'; document.getElementById('pf-price').value=p.price;
+  document.getElementById('pf-cost').value=p.cost||0; document.getElementById('pf-stock').value=p.stock||0;
+  document.getElementById('pf-minstock').value=p.minStock||0; document.getElementById('pf-isquick').checked=!!p.isQuick;
+  document.getElementById('pf-note').value=p.note||'';
+  document.getElementById('prod-form-title').textContent='Редактировать товар';
+  openModal('modal-prod-form');
+}
+
+function saveProductForm(){
+  const id=document.getElementById('pf-id').value;
+  const name=document.getElementById('pf-name').value.trim();
+  const price=toNum(document.getElementById('pf-price').value);
+  if(!name || price<=0) return alert('Заполните название и корректную цену продажи');
+  const prodData = {
+    name, category: document.getElementById('pf-category').value.trim(),
+    barcode: document.getElementById('pf-barcode').value.trim(), code: document.getElementById('pf-code').value.trim(),
+    unit: document.getElementById('pf-unit').value, price, cost: toNum(document.getElementById('pf-cost').value),
+    stock: toNum(document.getElementById('pf-stock').value), minStock: toNum(document.getElementById('pf-minstock').value),
+    isQuick: document.getElementById('pf-isquick').checked, note: document.getElementById('pf-note').value.trim()
+  };
+  if(id){ const idx=products.findIndex(x=>x.id===id); if(idx!==-1) products[idx] = { ...products[idx], ...prodData }; }
+  else products.push({ id: uid(), ...prodData });
+  saveLocal(); closeModal('modal-prod-form'); renderCatalog();
+  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 300);
+}
+
+function deleteProduct(id){
+  if(confirm('Удалить товар из каталога?')){ products = products.filter(p=>p.id!==id); saveLocal(); renderCatalog(); }
+}
+
+function printBarcode(id){
+  const p=products.find(x=>x.id===id); if(!p || !p.barcode) return alert('У товара нет штрихкода');
+  const bc = document.getElementById('printable-barcode');
+  bc.style.display = 'flex';
+  document.getElementById('bc-title').textContent = p.name;
+  document.getElementById('bc-price').textContent = p.price + ' ₸';
+  JsBarcode("#bc-svg", p.barcode, { format: "CODE128", width: 2, height: 50, displayValue: true });
+  setTimeout(() => { window.print(); bc.style.display = 'none'; }, 150);
+}
+
+// Excel functions (same as before)
+function downloadExcelTemplate(){
+  const wsData = [
+    ['Barcode', 'Code', 'Name', 'Category', 'Unit', 'Price', 'Cost', 'Stock', 'MinStock', 'IsQuick', 'Note'],
+    ['4820001', '101', 'Хлеб белый', 'Хлеб', 'шт', 180, 140, 25, 5, 'TRUE', 'Свежая выпечка'],
+    ['4820002', '102', 'Молоко 2.5%', 'Молочные', 'шт', 450, 360, 30, 8, 'TRUE', ''],
+    ['4820003', '103', 'Сахар весовой', 'Бакалея', 'кг', 500, 410, 100, 15, 'FALSE', '']
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Товары');
+  XLSX.writeFile(wb, 'SellCount_template_products.xlsx');
+}
+
+function importExcel(e){
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      let imported = 0;
+      for(let i = 1; i < rows.length; i++){
+        const row = rows[i];
+        if(!row || row.length < 3) continue;
+        const name = String(row[2] || '').trim();
+        if(!name) continue;
+        products.push({
+          id: uid(), barcode: String(row[0] || '').trim(), code: String(row[1] || '').trim(), name,
+          category: String(row[3] || '').trim(), unit: String(row[4] || 'шт').trim() || 'шт',
+          price: toNum(row[5]), cost: toNum(row[6]), stock: toNum(row[7]),
+          minStock: toNum(row[8]) || 5, isQuick: String(row[9] || '').toUpperCase() === 'TRUE' || row[9] === true || row[9] === 1,
+          note: String(row[10] || '').trim()
         });
+        imported++;
+      }
+      saveLocal(); renderCatalog();
+      alert('Успешно импортировано товаров: ' + imported);
+    } catch(err) { alert('Ошибка чтения Excel файла'); }
+    e.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
 
-        let firebaseSynced = false;
-        function initFirebaseSync() {
-            if (!window.db) {
-                console.warn("Firebase is not configured or could not be initialized.");
-                return;
-            }
-            if (firebaseSynced) return;
-            firebaseSynced = true;
-            const { collection, onSnapshot, query, orderBy } = window.firestoreTools;
+function exportFullExcelBackup(){
+  const wb = XLSX.utils.book_new();
+  const prodRows = [['id','barcode','code','name','category','unit','price','cost','stock','minStock','isQuick','note']];
+  products.forEach(p => prodRows.push([p.id,p.barcode,p.code,p.name,p.category,p.unit,p.price,p.cost,p.stock,p.minStock,p.isQuick,p.note]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Товары');
+  const salesRows = [['id','num','date','displayTime','total','costTotal','profit','cash','card','isDebt','customer','cashier','itemsJSON']];
+  sales.forEach(s => salesRows.push([s.id,s.num,s.date,s.displayTime,s.total,s.costTotal,s.profit,s.cash,s.card,s.isDebt,s.customer,s.cashier,JSON.stringify(s.items)]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(salesRows), 'Продажи');
+  const opsRows = [['id','type','prodId','prodName','unit','qty','reason','totalCost','date','saleNum']];
+  stockOps.forEach(o => opsRows.push([o.id,o.type,o.prodId,o.prodName,o.unit,o.qty,o.reason,o.totalCost,o.date,o.saleNum||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(opsRows), 'Склад');
+  const heldRows = [['id','date','customer','itemsJSON']];
+  heldCarts.forEach(h => heldRows.push([h.id,h.date,h.customer,JSON.stringify(h.items)]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(heldRows), 'Отложенные');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['receiptCounter',receiptCounter],['exportedAt',new Date().toISOString()]]), 'Meta');
+  XLSX.writeFile(wb, 'SellCount_backup_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
 
-            onSnapshot(collection(window.db, "products"), (snapshot) => {
-                products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderCatalog();
-                renderProductGrid();
-            });
-
-            onSnapshot(query(collection(window.db, "sales"), orderBy("timestamp", "desc")), (snapshot) => {
-                sales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderReports();
-                renderProductGrid();
-            });
-
-            onSnapshot(collection(window.db, "debtors"), (snapshot) => {
-                debtors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderDebts();
-            });
+function importFullExcelBackup(e){
+  const file = e.target.files[0]; if(!file) return;
+  if(!confirm('Все текущие данные будут заменены. Продолжить?')) { e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      if(workbook.SheetNames.includes('Товары')){
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Товары'], { header:1, defval:'' });
+        products = [];
+        for(let i=1;i<rows.length;i++){ const r=rows[i]; if(!r||!r[3]) continue;
+          products.push({ id:r[0]||uid(), barcode:String(r[1]||''), code:String(r[2]||''), name:String(r[3]||''), category:String(r[4]||''), unit:String(r[5]||'шт'), price:toNum(r[6]), cost:toNum(r[7]), stock:toNum(r[8]), minStock:toNum(r[9]), isQuick:r[10]===true||r[10]==='TRUE'||r[10]===1, note:String(r[11]||'') });
         }
-
-        // ——— Excel sample ———
-        function downloadExcelSample() {
-            const sampleData = [
-                { "Штрихкод": "4870001001234", "Наименование": "Вода Tassay 0.5л", "Продажа": 250, "Закуп": 180, "Остаток": 48, "МинОстаток": 10, "ПерваяНеобходимость": "да" },
-                { "Штрихкод": "4870002005678", "Наименование": "Шоколад Казахстанский 100г", "Продажа": 650, "Закуп": 480, "Остаток": 20, "МинОстаток": 5, "ПерваяНеобходимость": "" },
-                { "Штрихкод": "4870003009999", "Наименование": "Хлеб Бородинский", "Продажа": 180, "Закуп": 140, "Остаток": 15, "МинОстаток": 8, "ПерваяНеобходимость": "да" }
-            ];
-            const worksheet = XLSX.utils.json_to_sheet(sampleData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Товары");
-            XLSX.writeFile(workbook, "primer_tovarov.xlsx");
+      }
+      if(workbook.SheetNames.includes('Продажи')){
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Продажи'], { header:1, defval:'' });
+        sales = [];
+        for(let i=1;i<rows.length;i++){ const r=rows[i]; if(!r||!r[0]) continue;
+          let items=[]; try{items=JSON.parse(r[12]||'[]')}catch(_){}
+          sales.push({ id:r[0], num:toNum(r[1]), date:r[2], displayTime:r[3], total:toNum(r[4]), costTotal:toNum(r[5]), profit:toNum(r[6]), cash:toNum(r[7]), card:toNum(r[8]), isDebt:r[9]===true||r[9]==='TRUE', customer:String(r[10]||''), cashier:String(r[11]||''), items });
         }
-
-        async function handleExcelImport(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            if (!window.db) {
-                alert("Ошибка: База данных Firebase не подключена.");
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
-                    if (jsonData.length === 0) {
-                        alert("Файл пуст или имеет неверный формат!");
-                        return;
-                    }
-                    const { addDoc, collection } = window.firestoreTools;
-                    let count = 0;
-                    for (const row of jsonData) {
-                        const nec = String(row['ПерваяНеобходимость'] || row['necessity'] || '').toLowerCase();
-                        const product = {
-                            barcode: String(row['Штрихкод'] || row['Barcode'] || row['barcode'] || '').trim(),
-                            name: String(row['Наименование'] || row['Название'] || row['Name'] || row['name'] || '').trim(),
-                            price: parseFloat(row['Цена'] || row['Продажа'] || row['Price'] || 0),
-                            cost: parseFloat(row['Закуп'] || row['Cost'] || 0),
-                            stock: parseInt(row['Остаток'] || row['Количество'] || row['Stock'] || 0),
-                            minStock: parseInt(row['МинОстаток'] || row['MinStock'] || CRITICAL_DEFAULT),
-                            necessity: nec === 'да' || nec === 'yes' || nec === '1' || nec === 'true'
-                        };
-                        if (product.name) {
-                            await addDoc(collection(window.db, "products"), product);
-                            count++;
-                        }
-                    }
-                    alert(`Успешно импортировано товаров: ${count}`);
-                    event.target.value = '';
-                } catch (err) {
-                    console.error("Ошибка при импорте Excel:", err);
-                    alert("Произошла ошибка при обработке файла Excel.");
-                }
-            };
-            reader.readAsArrayBuffer(file);
+      }
+      if(workbook.SheetNames.includes('Склад')){
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Склад'], { header:1, defval:'' });
+        stockOps = [];
+        for(let i=1;i<rows.length;i++){ const r=rows[i]; if(!r||!r[0]) continue;
+          stockOps.push({ id:r[0], type:r[1], prodId:r[2], prodName:r[3], unit:r[4], qty:toNum(r[5]), reason:r[6], totalCost:toNum(r[7]), date:r[8], saleNum:r[9] });
         }
-
-        // ——— Сканер ———
-        document.getElementById('barcode-input').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const q = e.target.value.trim().toLowerCase();
-                if (!q) return;
-                const prod = products.find(p => p.barcode === q || (p.name || '').toLowerCase().includes(q));
-                if (prod) { addToCart(prod); e.target.value = ''; }
-                else alert('Товар не найден в базе');
-            }
-        });
-
-        function safeText(value) {
-            return String(value ?? '').replace(/[&<>"']/g, ch => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-            }[ch]));
+      }
+      if(workbook.SheetNames.includes('Отложенные')){
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Отложенные'], { header:1, defval:'' });
+        heldCarts = [];
+        for(let i=1;i<rows.length;i++){ const r=rows[i]; if(!r||!r[0]) continue;
+          let items=[]; try{items=JSON.parse(r[3]||'[]')}catch(_){}
+          heldCarts.push({ id:r[0], date:r[1], customer:r[2], items });
         }
-        function toNumber(value) {
-            const n = Number(value);
-            return Number.isFinite(n) ? n : 0;
-        }
+      }
+      if(workbook.SheetNames.includes('Meta')){
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Meta'], { header:1, defval:'' });
+        for(const r of rows){ if(r[0]==='receiptCounter') receiptCounter = toNum(r[1])||1001; }
+      }
+      saveLocal(); renderAll();
+      alert('Данные успешно восстановлены из Excel!');
+    } catch(err) { alert('Ошибка: ' + err.message); }
+    e.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
 
-        // ——— Корзина ———
-        function addToCart(prod) {
-            prod.stock = toNumber(prod.stock);
-            prod.price = toNumber(prod.price);
-            prod.cost = toNumber(prod.cost);
-            if (prod.stock <= 0) return alert('Товар закончился');
-            const item = cart.find(c => c.id === prod.id);
-            if (item) {
-                if (item.qty + 1 > prod.stock) return alert('Превышен остаток');
-                item.qty++;
-            } else {
-                cart.push({ ...prod, qty: 1 });
-            }
-            renderCart();
-        }
+function exportReportsExcel(){
+  const filtered = getFilteredSales();
+  const rows = [['Чек','Дата','Итого','Себестоимость','Прибыль','Наличные','Карта','Тип','Кассир','Покупатель','Товары']];
+  filtered.forEach(s => rows.push([s.num,s.displayTime,s.total,s.costTotal,s.profit,s.cash,s.card,s.isDebt?'В долг':'Оплачен',s.cashier||'',s.customer||'',s.items.map(x=>x.name+' ×'+x.qty).join('; ')]));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Отчёт продаж');
+  XLSX.writeFile(wb, 'SellCount_report_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
 
-        function renderCart() {
-            const tbody = document.getElementById('cart-table');
-            tbody.innerHTML = '';
-            let total = 0, count = 0;
-            cart.forEach((item, index) => {
-                const subtotal = toNumber(item.price) * toNumber(item.qty);
-                total += subtotal;
-                count += item.qty;
-                tbody.innerHTML += `
-                    <tr>
-                        <td class="py-2.5 font-semibold">${safeText(item.name)}</td>
-                        <td class="py-2.5 text-center">
-                            <div class="inline-flex items-center border border-slate-800 rounded-lg bg-slate-950/50">
-                                <button onclick="changeQty(${index}, -1)" class="px-2 py-0.5 text-slate-400 font-bold hover:bg-slate-800">-</button>
-                                <span class="px-2 font-bold">${item.qty}</span>
-                                <button onclick="changeQty(${index}, 1)" class="px-2 py-0.5 text-slate-400 font-bold hover:bg-slate-800">+</button>
-                            </div>
-                        </td>
-                        <td class="py-2.5 text-right font-extrabold">${subtotal} ₸</td>
-                        <td class="py-2.5 text-right"><button onclick="removeFromCart(${index})" class="text-rose-500 font-bold ml-2">✕</button></td>
-                    </tr>
-                `;
-            });
-            document.getElementById('cart-total').innerText = `${total} ₸`;
-            document.getElementById('cart-items-sum').innerText = `${count} позиций`;
-        }
+function setStockOpTab(t){
+  currentStockOpTab=t;
+  document.getElementById('sop-tab-writeoff').className=t==='writeoff'?'px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white':'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200';
+  document.getElementById('sop-tab-supplier_return').className=t==='supplier_return'?'px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white':'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200';
+}
 
-        function changeQty(index, d) {
-            const item = cart[index];
-            const prod = products.find(p => p.id === item.id);
-            if (!prod) return alert('Товар больше не существует в базе');
-            prod.stock = toNumber(prod.stock);
-            if (item.qty + d > prod.stock) return alert('Превышен остаток');
-            item.qty += d;
-            if (item.qty <= 0) cart.splice(index, 1);
-            renderCart();
-        }
-        function removeFromCart(i) { cart.splice(i, 1); renderCart(); }
-        function clearCart() { cart = []; renderCart(); }
-
-        // ——— Продажа ———
-        async function processSale(payType) {
-            if (cart.length === 0) return alert('Чек пуст');
-            const client = document.getElementById('cart-client').value.trim() || 'Частное лицо';
-            if (payType === 'В долг' && client === 'Частное лицо') return alert('Укажите ФИО клиента для долга');
-            if (!window.db) return alert('Firebase не подключён');
-
-            let total = 0, cost = 0;
-            const itemsStr = cart.map(i => `${i.name} (x${i.qty})`).join(', ');
-            const itemsDetail = cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price, cost: i.cost }));
-
-            const { addDoc, collection, doc, updateDoc, serverTimestamp } = window.firestoreTools;
-
-            for (let item of cart) {
-                total += toNumber(item.price) * toNumber(item.qty);
-                cost += toNumber(item.cost) * toNumber(item.qty);
-                const pRef = doc(window.db, "products", item.id);
-                const current = products.find(p => p.id === item.id);
-                const newStock = toNumber(current?.stock) - toNumber(item.qty);
-                await updateDoc(pRef, { stock: Math.max(0, newStock) });
-            }
-
-            await addDoc(collection(window.db, "sales"), {
-                client, payType, total, profit: total - cost,
-                items: itemsStr, itemsDetail,
-                seller: currentUserName,
-                store: storeName,
-                timestamp: serverTimestamp(),
-                date: new Date().toLocaleDateString('ru-RU'),
-                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-            });
-
-            if (payType === 'В долг') {
-                await addDoc(collection(window.db, "debtors"), {
-                    name: client, amount: total, date: new Date().toLocaleDateString('ru-RU')
-                });
-            }
-
-            document.getElementById('pr-store').innerText = storeName;
-            document.getElementById('pr-seller').innerText = currentUserName;
-            document.getElementById('pr-date').innerText = new Date().toLocaleString('ru-RU');
-            document.getElementById('pr-client').innerText = client;
-            document.getElementById('pr-paytype').innerText = payType;
-            document.getElementById('pr-total').innerText = `${total} ₸`;
-            const prItems = document.getElementById('pr-items');
-            prItems.innerHTML = '';
-            cart.forEach(i => {
-                prItems.innerHTML += `<div style="display:flex;justify-content:space-between;"><span>${safeText(i.name)} x${i.qty}</span><span>${toNumber(i.price) * toNumber(i.qty)} ₸</span></div>`;
-            });
-
-            window.print();
-            clearCart();
-            document.getElementById('cart-client').value = '';
-        }
-
-        // ——— Скорость продаж (для сортировки у продавца) ———
-        function getSoldCountMap() {
-            const map = {};
-            const today = new Date().toLocaleDateString('ru-RU');
-            sales.forEach(s => {
-                // учитываем все продажи или только сегодня — для "быстро продаётся" берём все
-                if (s.itemsDetail && Array.isArray(s.itemsDetail)) {
-                    s.itemsDetail.forEach(it => {
-                        map[it.id] = (map[it.id] || 0) + toNumber(it.qty);
-                    });
-                }
-            });
-            return map;
-        }
-
-        function getSortedProductsForPOS() {
-            const soldMap = getSoldCountMap();
-            const list = [...products];
-            // Сортировка: товары первой необходимости + быстро продающиеся сверху
-            list.sort((a, b) => {
-                const soldA = soldMap[a.id] || 0;
-                const soldB = soldMap[b.id] || 0;
-                const necA = a.necessity ? 1 : 0;
-                const necB = b.necessity ? 1 : 0;
-                if (necA !== necB) return necB - necA;
-                if (soldA !== soldB) return soldB - soldA;
-                return (a.name || '').localeCompare(b.name || '');
-            });
-            return list;
-        }
-
-        function renderProductGrid() {
-            const grid = document.getElementById('product-grid');
-            if (!grid) return;
-            grid.innerHTML = '';
-            document.getElementById('catalog-count').innerText = `${products.length} товаров`;
-
-            const list = getSortedProductsForPOS();
-            const soldMap = getSoldCountMap();
-
-            list.forEach(p => {
-                const sold = soldMap[p.id] || 0;
-                const isFast = sold > 0;
-                const minS = toNumber(p.minStock) || CRITICAL_DEFAULT;
-                const isCritical = toNumber(p.stock) <= minS;
-                grid.innerHTML += `
-                    <div onclick="addToCartById('${p.id}')" 
-                        class="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl hover:border-slate-600 cursor-pointer transition flex flex-col justify-between ${isFast ? 'fast-seller' : ''} ${isCritical ? 'critical-stock' : ''}">
-                        <div class="font-semibold text-xs line-clamp-2">${safeText(p.name)}</div>
-                        <div class="flex flex-wrap gap-1 mt-1">
-                            ${p.necessity ? '<span class="necessity-badge text-[9px] px-1.5 py-0.5 rounded font-bold">1-я необх.</span>' : ''}
-                            ${isFast ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-bold">×${sold} продаж</span>` : ''}
-                        </div>
-                        <div class="flex justify-between items-end mt-2">
-                            <span class="text-xs font-black text-emerald-400">${toNumber(p.price)} ₸</span>
-                            <span class="text-[10px] ${isCritical ? 'text-rose-400 font-bold' : 'text-slate-500'}">${toNumber(p.stock)} шт</span>
-                        </div>
-                    </div>
-                `;
-            });
-        }
-
-        function renderCatalog() {
-            const table = document.getElementById('catalog-table');
-            if (!table) return;
-            table.innerHTML = '';
-
-            // Админ: сортируем — сначала критические, потом первая необходимость
-            const list = [...products].sort((a, b) => {
-                const critA = toNumber(a.stock) <= (toNumber(a.minStock) || CRITICAL_DEFAULT) ? 1 : 0;
-                const critB = toNumber(b.stock) <= (toNumber(b.minStock) || CRITICAL_DEFAULT) ? 1 : 0;
-                if (critA !== critB) return critB - critA;
-                const necA = a.necessity ? 1 : 0;
-                const necB = b.necessity ? 1 : 0;
-                if (necA !== necB) return necB - necA;
-                return (a.name || '').localeCompare(b.name || '');
-            });
-
-            list.forEach(p => {
-                const minS = toNumber(p.minStock) || CRITICAL_DEFAULT;
-                const stock = toNumber(p.stock);
-                const isCritical = stock <= minS;
-                let statusHtml = '';
-                if (stock <= 0) {
-                    statusHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400">Нет в наличии</span>';
-                } else if (isCritical) {
-                    statusHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400">⚠ Нужно заказать</span>';
-                } else {
-                    statusHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400">В норме</span>';
-                }
-
-                table.innerHTML += `
-                    <tr class="${isCritical ? 'critical-stock' : ''}">
-                        <td class="p-3 font-mono text-slate-500">${safeText(p.barcode)}</td>
-                        <td class="p-3 font-semibold">
-                            ${safeText(p.name)}
-                            ${p.necessity ? ' <span class="necessity-badge text-[9px] px-1.5 py-0.5 rounded font-bold">1-я необх.</span>' : ''}
-                        </td>
-                        <td class="p-3 font-bold">${toNumber(p.price)} ₸</td>
-                        <td class="p-3 text-slate-500">${toNumber(p.cost)} ₸</td>
-                        <td class="p-3">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${stock > minS ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${stock} шт</span>
-                            <span class="text-[9px] text-slate-500 ml-1">(мин ${minS})</span>
-                        </td>
-                        <td class="p-3">${statusHtml}</td>
-                        <td class="p-3 text-right space-x-2">
-                            <button onclick="editProduct('${p.id}')" class="text-xs text-indigo-400 hover:underline">Изменить</button>
-                            <button onclick="deleteProduct('${p.id}')" class="text-xs text-rose-500 hover:underline">Удалить</button>
-                        </td>
-                    </tr>
-                `;
-            });
-        }
-
-        function addToCartById(id) {
-            const p = products.find(x => x.id === id);
-            if (p) addToCart(p);
-        }
-
-        // ——— Отчёты: день / неделя / период ———
-        let reportPeriod = 'day'; // 'day' | 'week' | 'range'
-
-        function parseRuDate(str) {
-            // "14.09.2026" -> Date
-            if (!str) return null;
-            const parts = String(str).split('.');
-            if (parts.length !== 3) return null;
-            const d = new Date(+parts[2], +parts[1] - 1, +parts[0]);
-            return isNaN(d.getTime()) ? null : d;
-        }
-
-        function toISODate(d) {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${day}`;
-        }
-
-        function formatRuDate(d) {
-            return d.toLocaleDateString('ru-RU');
-        }
-
-        function getPeriodBounds() {
-            const now = new Date();
-            now.setHours(0, 0, 0, 0);
-
-            if (reportPeriod === 'day') {
-                const el = document.getElementById('report-date');
-                let d = el && el.value ? new Date(el.value + 'T00:00:00') : now;
-                if (isNaN(d.getTime())) d = now;
-                const end = new Date(d);
-                end.setHours(23, 59, 59, 999);
-                return { from: d, to: end, label: formatRuDate(d) };
-            }
-
-            if (reportPeriod === 'week') {
-                // последние 7 дней включая сегодня
-                const to = new Date(now);
-                to.setHours(23, 59, 59, 999);
-                const from = new Date(now);
-                from.setDate(from.getDate() - 6);
-                return { from, to, label: `${formatRuDate(from)} — ${formatRuDate(to)}` };
-            }
-
-            // range
-            const fromEl = document.getElementById('report-date-from');
-            const toEl = document.getElementById('report-date-to');
-            let from = fromEl && fromEl.value ? new Date(fromEl.value + 'T00:00:00') : now;
-            let to = toEl && toEl.value ? new Date(toEl.value + 'T23:59:59') : now;
-            if (isNaN(from.getTime())) from = now;
-            if (isNaN(to.getTime())) to = now;
-            if (from > to) { const t = from; from = to; to = t; }
-            to.setHours(23, 59, 59, 999);
-            return { from, to, label: `${formatRuDate(from)} — ${formatRuDate(to)}` };
-        }
-
-        function getFilteredSales() {
-            const { from, to } = getPeriodBounds();
-            return sales.filter(s => {
-                let d = parseRuDate(s.date);
-                if (!d && s.timestamp && s.timestamp.seconds) {
-                    d = new Date(s.timestamp.seconds * 1000);
-                }
-                if (!d) return false;
-                d.setHours(12, 0, 0, 0); // середина дня для сравнения
-                return d >= from && d <= to;
-            });
-        }
-
-        function setReportPeriod(mode) {
-            reportPeriod = mode;
-            document.querySelectorAll('.period-btn').forEach(b => {
-                b.className = 'period-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition';
-            });
-            const active = document.getElementById('period-btn-' + mode);
-            if (active) active.className = 'period-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white transition';
-
-            const dayCtrl = document.getElementById('period-day-controls');
-            const rangeCtrl = document.getElementById('period-range-controls');
-            if (mode === 'day') {
-                dayCtrl.classList.remove('hidden');
-                dayCtrl.classList.add('flex');
-                rangeCtrl.classList.add('hidden');
-                rangeCtrl.classList.remove('flex');
-            } else if (mode === 'week') {
-                dayCtrl.classList.add('hidden');
-                dayCtrl.classList.remove('flex');
-                rangeCtrl.classList.add('hidden');
-                rangeCtrl.classList.remove('flex');
-            } else {
-                dayCtrl.classList.add('hidden');
-                dayCtrl.classList.remove('flex');
-                rangeCtrl.classList.remove('hidden');
-                rangeCtrl.classList.add('flex');
-            }
-            renderReports();
-        }
-
-        function getReportPeriodTitle() {
-            const { label } = getPeriodBounds();
-            if (reportPeriod === 'day') return `Отчёт за день: ${label}`;
-            if (reportPeriod === 'week') return `Отчёт за неделю: ${label}`;
-            return `Отчёт за период: ${label}`;
-        }
-
-        function renderReports() {
-            const filtered = getFilteredSales();
-            let rev = 0, prof = 0, kaspi = 0, cash = 0;
-            const tbody = document.getElementById('sales-history-table');
-            tbody.innerHTML = '';
-
-            filtered.forEach(s => {
-                rev += toNumber(s.total);
-                prof += toNumber(s.profit);
-                if (s.payType === 'Kaspi') kaspi += toNumber(s.total);
-                else if (s.payType === 'Наличные') cash += toNumber(s.total);
-
-                const when = [s.date, s.time].filter(Boolean).join(' ');
-                tbody.innerHTML += `
-                    <tr>
-                        <td class="p-3 text-slate-500 font-mono">${safeText(when)}</td>
-                        <td class="p-3 font-semibold">${safeText(s.client)}</td>
-                        <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${safeText(s.payType)}</span></td>
-                        <td class="p-3 text-slate-400 max-w-xs truncate">${safeText(s.items)}</td>
-                        <td class="p-3 text-right font-black">${toNumber(s.total)} ₸</td>
-                    </tr>
-                `;
-            });
-
-            document.getElementById('stat-revenue').innerText = `${rev} ₸`;
-            document.getElementById('stat-profit').innerText = `${prof} ₸`;
-            document.getElementById('stat-kaspi').innerText = `${kaspi} ₸`;
-            document.getElementById('stat-cash').innerText = `${cash} ₸`;
-
-            const title = getReportPeriodTitle();
-            document.getElementById('report-title').textContent = title;
-            document.getElementById('report-date-label').textContent = `(${filtered.length} операций)`;
-            document.getElementById('journal-title').textContent = 'Журнал операций — ' + title;
-        }
-
-        function printReport() {
-            const filtered = getFilteredSales();
-            const title = getReportPeriodTitle();
-            let rev = 0, prof = 0, kaspi = 0, cash = 0;
-            filtered.forEach(s => {
-                rev += toNumber(s.total);
-                prof += toNumber(s.profit);
-                if (s.payType === 'Kaspi') kaspi += toNumber(s.total);
-                else if (s.payType === 'Наличные') cash += toNumber(s.total);
-            });
-
-            document.getElementById('rep-title').textContent = title;
-            document.getElementById('rep-meta').innerHTML = `
-                <div><b>Магазин:</b> ${safeText(storeName)}</div>
-                <div><b>Продавец / Админ:</b> ${safeText(currentUserName)} (${currentRole === 'admin' ? 'Админ' : 'Продавец'})</div>
-                <div><b>Дата формирования:</b> ${new Date().toLocaleString('ru-RU')}</div>
-            `;
-            let statsHtml = `<div><b>Выручка:</b> ${rev} ₸</div>
-                <div><b>Kaspi:</b> ${kaspi} ₸ &nbsp;|&nbsp; <b>Наличные:</b> ${cash} ₸</div>`;
-            if (currentRole === 'admin') {
-                statsHtml += `<div><b>Чистая прибыль:</b> ${prof} ₸</div>`;
-            }
-            document.getElementById('rep-stats').innerHTML = statsHtml;
-
-            const tbody = document.getElementById('rep-tbody');
-            tbody.innerHTML = '';
-            filtered.forEach(s => {
-                const when = [s.date, s.time].filter(Boolean).join(' ');
-                tbody.innerHTML += `
-                    <tr>
-                        <td style="border:1px solid #cbd5e1; padding:6px;">${safeText(when)}</td>
-                        <td style="border:1px solid #cbd5e1; padding:6px;">${safeText(s.client)}</td>
-                        <td style="border:1px solid #cbd5e1; padding:6px;">${safeText(s.payType)}</td>
-                        <td style="border:1px solid #cbd5e1; padding:6px;">${safeText(s.items)}</td>
-                        <td style="border:1px solid #cbd5e1; padding:6px; text-align:right;">${toNumber(s.total)} ₸</td>
-                    </tr>
-                `;
-            });
-
-            const reportEl = document.getElementById('printable-report');
-            const receiptEl = document.getElementById('printable-receipt');
-            receiptEl.classList.add('hidden');
-            reportEl.classList.remove('hidden');
-            window.print();
-            setTimeout(() => reportEl.classList.add('hidden'), 500);
-        }
-
-        function exportReportExcel() {
-            const filtered = getFilteredSales();
-            const { label } = getPeriodBounds();
-            const title = getReportPeriodTitle();
-            const rows = filtered.map(s => ({
-                'Дата': s.date || '',
-                'Время': s.time || '',
-                'Покупатель': s.client || '',
-                'Тип оплаты': s.payType || '',
-                'Состав': s.items || '',
-                'Сумма': toNumber(s.total),
-                ...(currentRole === 'admin' ? { 'Прибыль': toNumber(s.profit) } : {})
-            }));
-
-            const meta = [
-                { 'Дата': 'Магазин', 'Время': storeName },
-                { 'Дата': 'Сотрудник', 'Время': `${currentUserName} (${currentRole === 'admin' ? 'Админ' : 'Продавец'})` },
-                { 'Дата': 'Период', 'Время': label },
-                { 'Дата': 'Отчёт', 'Время': title },
-                { 'Дата': '', 'Время': '' }
-            ];
-
-            const ws = XLSX.utils.json_to_sheet([...meta, ...rows], { skipHeader: false });
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Отчёт");
-            const safeLabel = label.replace(/[\s.]/g, '_').replace(/—/g, '-');
-            const fileName = `Otchet_${storeName.replace(/\s+/g, '_')}_${safeLabel}.xlsx`;
-            XLSX.writeFile(wb, fileName);
-        }
-
-        function exportReportPDF() {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-            const filtered = getFilteredSales();
-            const { label } = getPeriodBounds();
-            const title = getReportPeriodTitle();
-
-            let rev = 0, prof = 0, kaspi = 0, cash = 0;
-            filtered.forEach(s => {
-                rev += toNumber(s.total);
-                prof += toNumber(s.profit);
-                if (s.payType === 'Kaspi') kaspi += toNumber(s.total);
-                else if (s.payType === 'Наличные') cash += toNumber(s.total);
-            });
-
-            doc.setFontSize(14);
-            doc.text(title.substring(0, 60), 14, 16);
-            doc.setFontSize(10);
-            doc.text(`Magazin: ${storeName}`, 14, 24);
-            doc.text(`Sotrudnik: ${currentUserName} (${currentRole === 'admin' ? 'Admin' : 'Prodavec'})`, 14, 30);
-            doc.text(`Period: ${label}`, 14, 36);
-            doc.text(`Vyruchka: ${rev} KZT  |  Kaspi: ${kaspi}  |  Nalichnye: ${cash}`, 14, 42);
-            let y = 42;
-            if (currentRole === 'admin') {
-                y = 48;
-                doc.text(`Chistaya pribyl: ${prof} KZT`, 14, y);
-            }
-
-            const tableBody = filtered.map(s => [
-                [s.date, s.time].filter(Boolean).join(' '),
-                s.client || '',
-                s.payType || '',
-                (s.items || '').substring(0, 40),
-                String(toNumber(s.total))
-            ]);
-
-            doc.autoTable({
-                startY: y + 6,
-                head: [['Data/Vremya', 'Pokupatel', 'Oplata', 'Sostav', 'Summa']],
-                body: tableBody,
-                styles: { fontSize: 8 },
-                headStyles: { fillColor: [16, 185, 129] }
-            });
-
-            const safeLabel = label.replace(/[\s.]/g, '_').replace(/—/g, '-');
-            doc.save(`Otchet_${storeName.replace(/\s+/g, '_')}_${safeLabel}.pdf`);
-        }
-
-        // ——— Должники ———
-        function renderDebts() {
-            const tbody = document.getElementById('debts-table');
-            tbody.innerHTML = '';
-            let sum = 0;
-            debtors.forEach(d => {
-                sum += toNumber(d.amount);
-                tbody.innerHTML += `
-                    <tr>
-                        <td class="p-3 font-semibold">${safeText(d.name)}</td>
-                        <td class="p-3 text-slate-500">${safeText(d.date)}</td>
-                        <td class="p-3 font-black text-rose-400">${toNumber(d.amount)} ₸</td>
-                        <td class="p-3 text-right">
-                            <button onclick="payDebt('${d.id}')" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-lg font-bold text-[11px] transition">
-                                Погашено
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            document.getElementById('total-debts-sum').innerText = `${sum} ₸`;
-        }
-
-        // ——— Товары: добавление / редактирование ———
-        document.getElementById('add-prod-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            if (!window.db) return alert('Firebase не подключён');
-            const { addDoc, collection, doc, updateDoc } = window.firestoreTools;
-
-            const data = {
-                barcode: document.getElementById('p-barcode').value.trim(),
-                name: document.getElementById('p-name').value.trim(),
-                price: parseFloat(document.getElementById('p-price').value) || 0,
-                cost: parseFloat(document.getElementById('p-cost').value) || 0,
-                stock: parseInt(document.getElementById('p-stock').value) || 0,
-                minStock: parseInt(document.getElementById('p-min-stock').value) || CRITICAL_DEFAULT,
-                necessity: document.getElementById('p-necessity').checked
-            };
-
-            const editId = document.getElementById('p-edit-id').value;
-            if (editId) {
-                await updateDoc(doc(window.db, "products", editId), data);
-            } else {
-                await addDoc(collection(window.db, "products"), data);
-            }
-            cancelEdit();
-            e.target.reset();
-            document.getElementById('p-min-stock').value = CRITICAL_DEFAULT;
-        });
-
-        function editProduct(id) {
-            const p = products.find(x => x.id === id);
-            if (!p) return;
-            document.getElementById('p-edit-id').value = id;
-            document.getElementById('p-barcode').value = p.barcode || '';
-            document.getElementById('p-name').value = p.name || '';
-            document.getElementById('p-price').value = toNumber(p.price);
-            document.getElementById('p-cost').value = toNumber(p.cost);
-            document.getElementById('p-stock').value = toNumber(p.stock);
-            document.getElementById('p-min-stock').value = toNumber(p.minStock) || CRITICAL_DEFAULT;
-            document.getElementById('p-necessity').checked = !!p.necessity;
-            document.getElementById('form-title').textContent = 'Редактирование товара';
-            document.getElementById('btn-save-prod').textContent = 'Обновить';
-            document.getElementById('btn-cancel-edit').classList.remove('hidden');
-            switchTab('products');
-        }
-
-        function cancelEdit() {
-            document.getElementById('p-edit-id').value = '';
-            document.getElementById('form-title').textContent = 'Новый товар';
-            document.getElementById('btn-save-prod').textContent = 'Сохранить в базу';
-            document.getElementById('btn-cancel-edit').classList.add('hidden');
-            document.getElementById('add-prod-form').reset();
-            document.getElementById('p-min-stock').value = CRITICAL_DEFAULT;
-        }
-
-        async function deleteProduct(id) {
-            if (confirm('Удалить товар из номенклатуры?')) {
-                const { deleteDoc, doc } = window.firestoreTools;
-                await deleteDoc(doc(window.db, "products", id));
-            }
-        }
-
-        async function payDebt(id) {
-            if (confirm('Подтвердить погашение долга?')) {
-                const { deleteDoc, doc } = window.firestoreTools;
-                await deleteDoc(doc(window.db, "debtors", id));
-            }
-        }
-
-        function switchTab(tab) {
-            if (tab === 'products' && currentRole !== 'admin') {
-                alert('Раздел «Каталог» доступен только администратору');
-                return;
-            }
-            ['pos', 'reports', 'debts', 'products'].forEach(t => {
-                const view = document.getElementById(`view-${t}`);
-                if (view) {
-                    view.classList.add('hidden');
-                    view.classList.remove('flex');
-                }
-                const btn = document.getElementById(`tab-btn-${t}`);
-                if (btn) btn.className = 'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition';
-            });
-
-            const activeView = document.getElementById(`view-${tab}`);
-            if (activeView) {
-                activeView.classList.remove('hidden');
-                if (tab === 'reports' || tab === 'debts') activeView.classList.add('flex');
-            }
-
-            const activeBtn = document.getElementById(`tab-btn-${tab}`);
-            if (activeBtn) activeBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white shadow-sm transition';
-            if (tab === 'pos') document.getElementById('barcode-input')?.focus();
-            applyRoleUI();
-        }
-    </script>
-
-    <div id="firebase-warning" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-xl w-[calc(100%-2rem)] bg-amber-950 border border-amber-700 text-amber-100 rounded-xl px-4 py-3 text-xs shadow-2xl no-print">
-        <div class="font-bold mb-1">Firebase не настроен</div>
-        <div>Откройте <b>index.html</b> и замените значения YOUR_* в firebaseConfig на данные вашего Firebase-проекта. После этого загрузите проект в GitHub Pages.</div>
+function renderStockOps(){
+  const sel=document.getElementById('sop-product');
+  sel.innerHTML=products.map(p=>`<option value="${p.id}">${safe(p.name)} (Остаток: ${p.stock} ${p.unit})</option>`).join('');
+  const log=document.getElementById('stock-ops-log');
+  log.innerHTML=stockOps.slice().reverse().map(op=>`
+    <div class="p-2 flex justify-between items-center">
+      <div>
+        <span class="font-bold uppercase ${op.type==='writeoff'?'text-rose-600':op.type==='customer_return'?'text-emerald-600':'text-amber-600'}">[${op.type==='writeoff'?'Списание':op.type==='customer_return'?'Возврат покупателя':'Возврат поставщику'}]</span>
+        <b>${safe(op.prodName)}</b> — ${op.qty} ${op.unit}
+        <div class="text-[10px]" style="color: var(--text-muted);">Причина: ${safe(op.reason||'Не указана')} | ${op.date}</div>
+      </div>
+      <div class="font-bold">${toNum(op.totalCost).toFixed(2)} ₸</div>
     </div>
+  `).join('') || '<div class="p-3 text-xs" style="color: var(--text-muted);">Нет операций</div>';
+}
 
-    <script>
-        if (window.firebaseConfigMissing || window.firebaseInitError) {
-            document.getElementById('firebase-warning').classList.remove('hidden');
-        }
-    </script>
+function executeStockOp(){
+  const pid=document.getElementById('sop-product').value;
+  const qty=toNum(document.getElementById('sop-qty').value);
+  const reason=document.getElementById('sop-reason').value.trim();
+  const p=products.find(x=>x.id===pid);
+  if(!p || qty<=0) return alert('Выберите товар и корректное количество');
+  if(!reason) return alert('Указание причины обязательно!');
+  p.stock = +(p.stock - qty).toFixed(3);
+  stockOps.push({ id: uid(), type: currentStockOpTab, prodId: p.id, prodName: p.name, unit: p.unit, qty, reason, totalCost: p.cost * qty, date: new Date().toLocaleString('ru-RU') });
+  saveLocal(); renderStockOps();
+  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 300);
+  alert('Операция проведена!');
+}
+
+function searchReceiptForReturn(){
+  const num=toNum(document.getElementById('return-search').value);
+  const s=sales.find(x=>x.num===num);
+  const box=document.getElementById('return-target-receipt');
+  if(!s){ box.innerHTML='<p class="text-xs text-rose-600 font-bold">Чек не найден</p>'; return; }
+  box.innerHTML=`
+    <div class="p-3 border rounded-xl max-w-md" style="background: var(--total-bg); border-color: var(--border);">
+      <div class="font-bold text-sm mb-1">Чек №${s.num} от ${s.displayTime}</div>
+      <div class="text-xs mb-2" style="color: var(--text-muted);">Сумма: <b>${s.total} ₸</b></div>
+      <div class="space-y-1 mb-3">
+        ${s.items.map((it,idx)=>`<div class="flex justify-between items-center text-xs"><span>${safe(it.name)} (${it.qty} ${it.unit})</span>
+          <button onclick="processItemReturn('${s.id}', ${idx})" class="px-2 py-0.5 bg-rose-600 text-white rounded text-[10px]">Возврат</button></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function processItemReturn(saleId, itemIdx){
+  const reason=prompt('Укажите причину возврата товара:');
+  if(!reason) return alert('Причина обязательна');
+  const s=sales.find(x=>x.id===saleId); if(!s) return;
+  const item=s.items[itemIdx];
+  const p=products.find(x=>x.id===item.id);
+  if(p) p.stock = +(p.stock + item.qty).toFixed(3);
+  const itemCost = toNum(item.cost) * toNum(item.qty);
+  s.total = +(s.total - item.sum).toFixed(2);
+  s.costTotal = +(s.costTotal - itemCost).toFixed(2);
+  s.profit = +(s.total - s.costTotal).toFixed(2);
+  s.items.splice(itemIdx, 1);
+  stockOps.push({ id: uid(), type: 'customer_return', prodId: item.id, prodName: item.name, unit: item.unit, qty: item.qty, reason, totalCost: itemCost, date: new Date().toLocaleString('ru-RU'), saleNum: s.num });
+  saveLocal(); searchReceiptForReturn();
+  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 300);
+  alert('Товар возвращен на склад!');
+}
+
+function setReportPeriod(p){
+  reportPeriod = p;
+  ['today','week','all'].forEach(x=>{
+    const el = document.getElementById('rbtn-'+x);
+    if(el) el.className = (x===p) ? 'px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg font-bold' : 'px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold';
+  });
+  renderReports();
+}
+
+function getFilteredSales(){
+  const now = new Date();
+  if(reportPeriod === 'all') return sales;
+  return sales.filter(s=>{
+    const d = new Date(s.date);
+    if(reportPeriod === 'today') return d.toDateString() === now.toDateString();
+    if(reportPeriod === 'week'){ const weekAgo = new Date(now.getTime() - 7*24*60*60*1000); return d >= weekAgo; }
+    return true;
+  });
+}
+
+function renderReports(){
+  const filtered = getFilteredSales();
+  const stats=document.getElementById('report-stats');
+  const totalSales = filtered.reduce((a,b)=>a+b.total,0);
+  const totalCost = filtered.reduce((a,b)=>a+b.costTotal,0);
+  const profit = totalSales - totalCost;
+  const cash = filtered.reduce((a,b)=>a+b.cash,0);
+  const card = filtered.reduce((a,b)=>a+b.card,0);
+  const debt = filtered.filter(s=>s.isDebt).reduce((a,b)=>a+b.total,0);
+  const receiptsCount = filtered.length;
+  const itemsSold = filtered.reduce((a,b)=>a + b.items.reduce((x,y)=>x+toNum(y.qty),0), 0);
+  const filteredOps = stockOps.filter(op=>{
+    if(reportPeriod === 'all') return true;
+    const d = new Date(op.date);
+    const now = new Date();
+    if(reportPeriod === 'today') return d.toDateString() === now.toDateString();
+    if(reportPeriod === 'week'){ const weekAgo = new Date(now.getTime() - 7*24*60*60*1000); return d >= weekAgo; }
+    return true;
+  });
+  const returnsSum = filteredOps.filter(o=>o.type==='customer_return').reduce((a,b)=>a+b.totalCost,0);
+  const writeoffsSum = filteredOps.filter(o=>o.type==='writeoff' || o.type==='supplier_return').reduce((a,b)=>a+b.totalCost,0);
+  stats.innerHTML=`
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Выручка</div><div class="text-xl font-extrabold">${totalSales.toFixed(2)} ₸</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Валовая прибыль</div><div class="text-xl font-extrabold text-emerald-600">${profit.toFixed(2)} ₸</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Наличные / Карта</div><div class="text-xs font-bold">${cash.toFixed(0)} / ${card.toFixed(0)} ₸</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Продажи в долг</div><div class="text-xl font-extrabold text-amber-600">${debt.toFixed(2)} ₸</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Чеков / Позиций</div><div class="text-lg font-extrabold">${receiptsCount} / ${itemsSold.toFixed(1)}</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Возвраты покупателей</div><div class="text-lg font-extrabold text-rose-600">${returnsSum.toFixed(2)} ₸</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Списания + возвр. пост.</div><div class="text-lg font-extrabold text-rose-700">${writeoffsSum.toFixed(2)} ₸</div></div>
+    <div class="p-3 rounded-xl border" style="background: var(--total-bg); border-color: var(--border);"><div class="text-[10px] uppercase font-bold" style="color: var(--text-muted);">Себестоимость</div><div class="text-lg font-extrabold">${totalCost.toFixed(2)} ₸</div></div>`;
+  const log=document.getElementById('report-sales-log');
+  log.innerHTML=filtered.slice().reverse().map(s=>`
+    <div class="p-2 flex justify-between items-center">
+      <div><b>Чек №${s.num}</b> (${s.displayTime}) — ${s.items.map(x=>x.name).join(', ')}
+        <div class="text-[10px]" style="color: var(--text-muted);">Кассир: ${safe(s.cashier)} ${s.customer?'| Покупатель: '+safe(s.customer):''} ${s.isDebt?'| В ДОЛГ':''}</div>
+      </div>
+      <div class="text-right"><div class="font-bold">${s.total.toFixed(2)} ₸</div><div class="text-[10px] text-emerald-600">Прибыль: ${s.profit.toFixed(2)} ₸</div></div>
+    </div>`).join('') || '<div class="p-3 text-xs" style="color: var(--text-muted);">Нет продаж за выбранный период</div>';
+}
+
+function renderAll(){ renderReceipt(); updateHeldBadge(); }
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  loadLocal();
+  updateOnlineBadge();
+  // Подсказка на экране входа
+  const hint = document.getElementById('login-hint');
+  if(window.firebaseConfigMissing){
+    hint.textContent = 'Для Google-входа укажите ключи Firebase в коде (firebaseConfig)';
+    hint.className = 'text-[11px] text-center text-amber-500 mt-2';
+  } else {
+    hint.textContent = 'Google-вход и облачная синхронизация готовы';
+    hint.className = 'text-[11px] text-center text-emerald-500 mt-2';
+  }
+  if(window.lucide) lucide.createIcons();
+});
+</script>
 </body>
 </html>
