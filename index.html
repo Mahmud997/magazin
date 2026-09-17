@@ -23,13 +23,13 @@ import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, writeBatch, 
 // ═══════════════════════════════════════════════════════════════
 //  ВСТАВЬТЕ СВОИ КЛЮЧИ FIREBASE СЮДА (Firebase Console → Project settings)
 // ═══════════════════════════════════════════════════════════════
-const firebaseConfig = { 
-  apiKey : "AIzaSyDfZ1cHuQuKJEI9vOVGg4kb_3rqpJRI6iY" , 
-  authDomain : "magazine-f2da1.firebaseapp.com" , 
-  projectId : "magazine-f2da1" , 
-  storageBucket : "magazine-f2da1.firebasestorage.app" , 
-  messagingSenderId : "43795584126" , 
-  appId : "1:43795584126:web:0af9366202d89c0322342f" 
+const firebaseConfig = {
+  apiKey: "AIzaSyDfZ1cHuQuKJEI9vOVGg4kb_3rqpJRI6iY",
+  authDomain: "magazine-f2da1.firebaseapp.com",
+  projectId: "magazine-f2da1",
+  storageBucket: "magazine-f2da1.firebasestorage.app",
+  messagingSenderId: "43795584126",
+  appId: "1:43795584126:web:0af9366202d89c0322342f"
 };
 
 window.firebaseConfigMissing = Object.values(firebaseConfig).some(v => String(v).startsWith("YOUR_"));
