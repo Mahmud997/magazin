@@ -18,7 +18,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, writeBatch, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // ═══════════════════════════════════════════════════════════════
 //  ВСТАВЬТЕ СВОИ КЛЮЧИ FIREBASE СЮДА (Firebase Console → Project settings)
@@ -66,33 +66,39 @@ window.fbOnAuthStateChanged = function(callback) {
   if (window.auth) onAuthStateChanged(window.auth, callback);
 };
 
-// Полная синхронизация: local → Firebase
+// ═══════════════════════════════════════════════════════════════
+  // FIREBASE DATA MODEL
+  // products — ОБЩИЙ каталог для всех пользователей:
+  // /products/{productId}
+  //
+  // sales / stockOps / heldCarts — персональные данные пользователя:
+  // /users/{uid}/sales/{id}
+  // /users/{uid}/stockOps/{id}
+  // /users/{uid}/heldCarts/{id}
+  // ═══════════════════════════════════════════════════════════════
+
 window.fbUploadAll = async function(uid, data) {
   if (!window.db || !uid) return false;
+
   const batch = writeBatch(window.db);
   const base = `users/${uid}`;
 
-  // Meta
+  // Персональные данные пользователя
   batch.set(doc(window.db, base, 'meta', 'info'), {
     receiptCounter: data.receiptCounter,
     updatedAt: new Date().toISOString(),
     cashierName: data.cashierName || ''
   });
 
-  // Products
-  for (const p of data.products) {
-    batch.set(doc(window.db, base, 'products', p.id), p);
-  }
-  // Sales
-  for (const s of data.sales) {
+  for (const s of data.sales || []) {
     batch.set(doc(window.db, base, 'sales', s.id), s);
   }
-  // Stock ops
-  for (const o of data.stockOps) {
+
+  for (const o of data.stockOps || []) {
     batch.set(doc(window.db, base, 'stockOps', o.id), o);
   }
-  // Held carts
-  for (const h of data.heldCarts) {
+
+  for (const h of data.heldCarts || []) {
     batch.set(doc(window.db, base, 'heldCarts', h.id), h);
   }
 
@@ -100,14 +106,118 @@ window.fbUploadAll = async function(uid, data) {
   return true;
 };
 
-// Загрузка всего из Firebase → local
+// Записать один товар в ОБЩИЙ каталог /products
+window.fbSaveProduct = async function(product) {
+  if (!window.db || !product || !product.id) return false;
+  await setDoc(doc(window.db, 'products', product.id), {
+    ...product,
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+  return true;
+};
+
+// Записать несколько товаров в ОБЩИЙ каталог /products
+window.fbSaveProducts = async function(productList) {
+  if (!window.db || !Array.isArray(productList) || !productList.length) return false;
+
+  const batch = writeBatch(window.db);
+  for (const p of productList) {
+    if (!p || !p.id) continue;
+    batch.set(doc(window.db, 'products', p.id), {
+      ...p,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  }
+  await batch.commit();
+  return true;
+};
+
+// Удалить товар из ОБЩЕГО каталога /products
+window.fbDeleteProduct = async function(productId) {
+  if (!window.db || !productId) return false;
+  await deleteDoc(doc(window.db, 'products', productId));
+  return true;
+};
+
+// Скачать общий каталог. Он НЕ зависит от uid.
+window.fbDownloadProducts = async function() {
+  if (!window.db) return [];
+  const result = [];
+  const snap = await getDocs(collection(window.db, 'products'));
+  snap.forEach(d => result.push(d.data()));
+  return result;
+};
+
+// Миграция старого каталога из /users/{uid}/products → /products
+// Ничего старого не удаляет.
+window.fbMigrateLegacyProducts = async function(uid) {
+  if (!window.db || !uid) return { migrated: 0, skipped: 0 };
+
+  const globalSnap = await getDocs(collection(window.db, 'products'));
+  const legacySnap = await getDocs(collection(window.db, `users/${uid}/products`));
+
+  if (legacySnap.empty) {
+    return { migrated: 0, skipped: globalSnap.size };
+  }
+
+  const batch = writeBatch(window.db);
+  let migrated = 0;
+
+  legacySnap.forEach(d => {
+    const data = d.data();
+    if (!data || !data.id) data.id = d.id;
+
+    // Если товар уже есть в общем каталоге — не перезаписываем его
+    // старой версией.
+    if (!globalSnap.docs.some(g => g.id === d.id)) {
+      batch.set(doc(window.db, 'products', d.id), {
+        ...data,
+        migratedFromUser: uid,
+        updatedAt: new Date().toISOString()
+      });
+      migrated++;
+    }
+  });
+
+  if (migrated) await batch.commit();
+  return { migrated, skipped: legacySnap.size - migrated };
+};
+
+// Подписка на общий каталог в реальном времени.
+// Любой новый/изменённый товар администратора появится у всех открытых клиентов.
+window.fbListenProducts = function(callback, onError) {
+  if (!window.db) return () => {};
+  return onSnapshot(
+    collection(window.db, 'products'),
+    snap => {
+      const list = [];
+      snap.forEach(d => list.push(d.data()));
+      callback(list);
+    },
+    err => {
+      console.error('Products listener error:', err);
+      if (onError) onError(err);
+    }
+  );
+};
+
+// Загрузка персональных данных пользователя + ОБЩЕГО каталога.
 window.fbDownloadAll = async function(uid) {
   if (!window.db || !uid) return null;
+
   const base = `users/${uid}`;
-  const result = { products: [], sales: [], stockOps: [], heldCarts: [], receiptCounter: 1001, cashierName: '' };
+  const result = {
+    products: [],
+    sales: [],
+    stockOps: [],
+    heldCarts: [],
+    receiptCounter: 1001,
+    cashierName: ''
+  };
 
   try {
     const metaSnap = await getDoc(doc(window.db, base, 'meta', 'info'));
+
     if (metaSnap.exists()) {
       const m = metaSnap.data();
       result.receiptCounter = m.receiptCounter || 1001;
@@ -115,7 +225,7 @@ window.fbDownloadAll = async function(uid) {
     }
 
     const [prodSnap, salesSnap, opsSnap, heldSnap] = await Promise.all([
-      getDocs(collection(window.db, base, 'products')),
+      getDocs(collection(window.db, 'products')),
       getDocs(collection(window.db, base, 'sales')),
       getDocs(collection(window.db, base, 'stockOps')),
       getDocs(collection(window.db, base, 'heldCarts'))
@@ -398,7 +508,7 @@ window.fbDownloadAll = async function(uid) {
   <div id="view-catalog" class="hidden flex-1 flex-col theme-card rounded-xl p-4 shadow-sm border overflow-hidden">
     <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
       <div class="flex items-center gap-2 flex-wrap">
-        <h2 class="text-lg font-bold">Каталог товаров</h2>
+        <h2 class="text-lg font-bold">Каталог товаров <span id="catalog-cloud-status" class="text-[10px] font-semibold text-slate-400 ml-1">Общий каталог</span></h2>
         <select id="catalog-cat-filter" onchange="renderCatalog()" class="bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg px-2 py-1" style="border-color: var(--border);">
           <option value="">Все категории</option>
         </select>
@@ -626,6 +736,8 @@ let currentUser = null;          // Firebase user
 let isOnline = navigator.onLine;
 let autoSyncTimer = null;
 let lastSyncTime = null;
+let stopProductsListener = null;
+let productsCloudReady = false;
 const LS={p:'sc_products_v2',s:'sc_sales_v2',ops:'sc_ops_v2',h:'sc_held_v2',c:'sc_rc_v2', theme:'sc_theme', lastSync:'sc_last_sync'};
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
@@ -802,11 +914,52 @@ async function loginWithGoogle(){
     document.getElementById('btn-logout').classList.remove('hidden');
     loadLocal();
     seedDemoIfEmpty();
+
+    // 1) Один раз переносим старые товары из /users/{uid}/products
+    //    в общий /products. Старые данные при этом НЕ удаляются.
+    if(navigator.onLine && window.firebaseReady) {
+      try {
+        await window.fbMigrateLegacyProducts(currentUser.uid);
+      } catch(e) {
+        console.warn('Legacy product migration:', e);
+      }
+    }
+
+    // 2) Сразу загружаем ОБЩИЙ каталог для этого пользователя.
+    if(navigator.onLine && window.firebaseReady) {
+      try {
+        const cloudProducts = await window.fbDownloadProducts();
+        if(cloudProducts.length) {
+          products = cloudProducts;
+          productsCloudReady = true;
+          saveLocal();
+        }
+      } catch(e) {
+        console.warn('Global products download:', e);
+      }
+    }
+
+    // 3) Реальное время: изменения каталога администратора
+    //    автоматически видят все открытые клиенты.
+    if(stopProductsListener) stopProductsListener();
+    if(window.firebaseReady) {
+      stopProductsListener = window.fbListenProducts((cloudProducts) => {
+        products = cloudProducts;
+        productsCloudReady = true;
+        saveLocal();
+        renderAll();
+        if(document.getElementById('view-catalog')?.classList.contains('flex')) {
+          renderCatalog();
+        }
+      });
+    }
+
     updateClock(); setInterval(updateClock, 1000);
     renderAll();
     updateOnlineBadge();
     startAutoSync();
-    // После входа сразу пробуем синхронизировать
+
+    // Синхронизируем только персональные данные пользователя.
     if(navigator.onLine) setTimeout(() => doSync(true), 1500);
     if(window.lucide) lucide.createIcons();
   } catch(e) {
@@ -825,7 +978,7 @@ function enterOfflineMode(){
   updateClock(); setInterval(updateClock, 1000);
   renderAll();
   updateOnlineBadge();
-  startAutoSync(); // даже в офлайне таймер работает — подключится, когда появится интернет + Google-сессия
+  startAutoSync(); // офлайн-режим работает локально; общий каталог Firebase доступен после Google-входа
   if(window.lucide) lucide.createIcons();
 }
 
@@ -838,6 +991,11 @@ async function logout(){
   document.getElementById('login-screen').classList.remove('hidden');
   updateOnlineBadge();
   if(autoSyncTimer) clearInterval(autoSyncTimer);
+  if(stopProductsListener) {
+    stopProductsListener();
+    stopProductsListener = null;
+  }
+  productsCloudReady = false;
 }
 
 function updateClock(){
@@ -851,7 +1009,16 @@ window.addEventListener('online', () => {
   updateOnlineBadge();
   // Как только появился интернет и есть Google-пользователь — синхронизируем
   if(currentUser && window.firebaseReady){
-    console.log('[Online] Интернет появился → синхронизация');
+    console.log('[Online] Интернет появился → обновление общего каталога');
+    window.fbDownloadProducts().then(cloudProducts => {
+      if(cloudProducts.length) {
+        products = cloudProducts;
+        productsCloudReady = true;
+        saveLocal();
+        renderAll();
+        renderCatalog();
+      }
+    }).catch(console.error);
     doSync(true);
   }
 });
@@ -1073,8 +1240,11 @@ function confirmPayment(type){
   printReceiptData(sale);
   cart=[]; selectedLine=-1; document.getElementById('cart-customer').value='';
   saveLocal(); closeModal('modal-pay'); renderReceipt();
-  // После продажи — быстрая синхронизация, если онлайн
-  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 500);
+  // Остаток товара — общий, поэтому обновляем /products
+  if(currentUser && navigator.onLine && window.firebaseReady) {
+    setTimeout(() => window.fbSaveProducts(products).catch(console.error), 300);
+    setTimeout(() => doSync(true), 500);
+  }
   alert(type==='debt'?'Продажа в долг оформлена!':'Продажа успешно завершена!');
 }
 
@@ -1116,6 +1286,14 @@ function addUniversal(){
 }
 
 function renderCatalog(){
+  const cloudStatus = document.getElementById('catalog-cloud-status');
+  if(cloudStatus){
+    cloudStatus.textContent = (currentUser && window.firebaseReady && isOnline)
+      ? 'Firebase · общий для всех'
+      : 'локальный режим';
+    cloudStatus.className = 'text-[10px] font-semibold ml-1 ' +
+      ((currentUser && window.firebaseReady && isOnline) ? 'text-emerald-600' : 'text-slate-400');
+  }
   const tbody=document.getElementById('catalog-table');
   const catFilter=document.getElementById('catalog-cat-filter').value;
   const categories = [...new Set(products.map(p=>p.category).filter(Boolean))];
@@ -1173,26 +1351,67 @@ function editProductForm(id){
   openModal('modal-prod-form');
 }
 
-function saveProductForm(){
+async function saveProductForm(){
   const id=document.getElementById('pf-id').value;
   const name=document.getElementById('pf-name').value.trim();
   const price=toNum(document.getElementById('pf-price').value);
   if(!name || price<=0) return alert('Заполните название и корректную цену продажи');
+
+  const existing = id ? products.find(x=>x.id===id) : null;
   const prodData = {
-    name, category: document.getElementById('pf-category').value.trim(),
-    barcode: document.getElementById('pf-barcode').value.trim(), code: document.getElementById('pf-code').value.trim(),
-    unit: document.getElementById('pf-unit').value, price, cost: toNum(document.getElementById('pf-cost').value),
-    stock: toNum(document.getElementById('pf-stock').value), minStock: toNum(document.getElementById('pf-minstock').value),
-    isQuick: document.getElementById('pf-isquick').checked, note: document.getElementById('pf-note').value.trim()
+    id: id || uid(),
+    name,
+    category: document.getElementById('pf-category').value.trim(),
+    barcode: document.getElementById('pf-barcode').value.trim(),
+    code: document.getElementById('pf-code').value.trim(),
+    unit: document.getElementById('pf-unit').value,
+    price,
+    cost: toNum(document.getElementById('pf-cost').value),
+    stock: toNum(document.getElementById('pf-stock').value),
+    minStock: toNum(document.getElementById('pf-minstock').value),
+    isQuick: document.getElementById('pf-isquick').checked,
+    note: document.getElementById('pf-note').value.trim()
   };
-  if(id){ const idx=products.findIndex(x=>x.id===id); if(idx!==-1) products[idx] = { ...products[idx], ...prodData }; }
-  else products.push({ id: uid(), ...prodData });
-  saveLocal(); closeModal('modal-prod-form'); renderCatalog();
-  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 300);
+
+  const finalProduct = existing ? { ...existing, ...prodData } : prodData;
+
+  try {
+    // Локально — сразу
+    const idx=products.findIndex(x=>x.id===finalProduct.id);
+    if(idx!==-1) products[idx] = finalProduct;
+    else products.push(finalProduct);
+    saveLocal();
+    closeModal('modal-prod-form');
+    renderCatalog();
+
+    // Firebase — ВНЕ users, в общем /products
+    if(currentUser && navigator.onLine && window.firebaseReady){
+      await window.fbSaveProduct(finalProduct);
+    } else if(!currentUser) {
+      alert('Товар сохранён только локально. Войдите через Google, чтобы товар был общим для всех.');
+      return;
+    }
+  } catch(e) {
+    console.error(e);
+    alert('Товар сохранён локально, но не отправлен в общий каталог Firebase: ' + (e.message || e));
+  }
 }
 
-function deleteProduct(id){
-  if(confirm('Удалить товар из каталога?')){ products = products.filter(p=>p.id!==id); saveLocal(); renderCatalog(); }
+async function deleteProduct(id){
+  if(!confirm('Удалить товар из каталога?')) return;
+
+  products = products.filter(p=>p.id!==id);
+  saveLocal();
+  renderCatalog();
+
+  if(currentUser && navigator.onLine && window.firebaseReady){
+    try {
+      await window.fbDeleteProduct(id);
+    } catch(e) {
+      console.error(e);
+      alert('Товар удалён локально, но не удалён из общего каталога Firebase: ' + (e.message || e));
+    }
+  }
 }
 
 function printBarcode(id){
@@ -1222,7 +1441,7 @@ function downloadExcelTemplate(){
 function importExcel(e){
   const file = e.target.files[0]; if(!file) return;
   const reader = new FileReader();
-  reader.onload = function(evt){
+  reader.onload = async function(evt){
     try {
       const data = new Uint8Array(evt.target.result);
       const workbook = XLSX.read(data, { type: 'array' });
@@ -1243,8 +1462,20 @@ function importExcel(e){
         });
         imported++;
       }
-      saveLocal(); renderCatalog();
-      alert('Успешно импортировано товаров: ' + imported);
+      saveLocal();
+      renderCatalog();
+
+      if(currentUser && navigator.onLine && window.firebaseReady && imported > 0){
+        try {
+          await window.fbSaveProducts(products);
+          alert('Успешно импортировано товаров: ' + imported + '\nТовары сохранены в общем каталоге Firebase и будут видны всем пользователям.');
+        } catch(uploadErr) {
+          console.error(uploadErr);
+          alert('Успешно импортировано локально: ' + imported + '\nНо Firebase не обновлён: ' + (uploadErr.message || uploadErr));
+        }
+      } else {
+        alert('Успешно импортировано товаров: ' + imported + '\nВойдите через Google, чтобы сохранить общий каталог Firebase.');
+      }
     } catch(err) { alert('Ошибка чтения Excel файла'); }
     e.target.value = '';
   };
@@ -1273,7 +1504,7 @@ function importFullExcelBackup(e){
   const file = e.target.files[0]; if(!file) return;
   if(!confirm('Все текущие данные будут заменены. Продолжить?')) { e.target.value=''; return; }
   const reader = new FileReader();
-  reader.onload = function(evt){
+  reader.onload = async function(evt){
     try {
       const data = new Uint8Array(evt.target.result);
       const workbook = XLSX.read(data, { type: 'array' });
@@ -1311,8 +1542,20 @@ function importFullExcelBackup(e){
         const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Meta'], { header:1, defval:'' });
         for(const r of rows){ if(r[0]==='receiptCounter') receiptCounter = toNum(r[1])||1001; }
       }
-      saveLocal(); renderAll();
-      alert('Данные успешно восстановлены из Excel!');
+      saveLocal();
+      renderAll();
+
+      if(currentUser && navigator.onLine && window.firebaseReady && products.length){
+        try {
+          await window.fbSaveProducts(products);
+          alert('Данные успешно восстановлены из Excel!\nТовары также записаны в общий каталог Firebase.');
+        } catch(uploadErr) {
+          console.error(uploadErr);
+          alert('Локальное восстановление выполнено, но общий каталог Firebase не обновлён: ' + (uploadErr.message || uploadErr));
+        }
+      } else {
+        alert('Данные успешно восстановлены из Excel!');
+      }
     } catch(err) { alert('Ошибка: ' + err.message); }
     e.target.value = '';
   };
@@ -1360,7 +1603,10 @@ function executeStockOp(){
   p.stock = +(p.stock - qty).toFixed(3);
   stockOps.push({ id: uid(), type: currentStockOpTab, prodId: p.id, prodName: p.name, unit: p.unit, qty, reason, totalCost: p.cost * qty, date: new Date().toLocaleString('ru-RU') });
   saveLocal(); renderStockOps();
-  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 300);
+  if(currentUser && navigator.onLine && window.firebaseReady) {
+    setTimeout(() => window.fbSaveProducts(products).catch(console.error), 300);
+    setTimeout(() => doSync(true), 500);
+  }
   alert('Операция проведена!');
 }
 
@@ -1394,7 +1640,10 @@ function processItemReturn(saleId, itemIdx){
   s.items.splice(itemIdx, 1);
   stockOps.push({ id: uid(), type: 'customer_return', prodId: item.id, prodName: item.name, unit: item.unit, qty: item.qty, reason, totalCost: itemCost, date: new Date().toLocaleString('ru-RU'), saleNum: s.num });
   saveLocal(); searchReceiptForReturn();
-  if(currentUser && navigator.onLine) setTimeout(() => doSync(true), 300);
+  if(currentUser && navigator.onLine && window.firebaseReady) {
+    setTimeout(() => window.fbSaveProducts(products).catch(console.error), 300);
+    setTimeout(() => doSync(true), 500);
+  }
   alert('Товар возвращен на склад!');
 }
 
