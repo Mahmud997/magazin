@@ -71,10 +71,11 @@ window.fbOnAuthStateChanged = function(callback) {
   // products — ОБЩИЙ каталог для всех пользователей:
   // /products/{productId}
   //
-  // sales / stockOps / heldCarts — персональные данные пользователя:
-  // /users/{uid}/sales/{id}
-  // /users/{uid}/stockOps/{id}
-  // /users/{uid}/heldCarts/{id}
+  // sales / stockOps / heldCarts — ОБЩИЕ данные для админа и продавцов:
+  // /sales/{id}
+  // /stockOps/{id}
+  // /heldCarts/{id}
+  // Meta остаётся персональным: /users/{uid}/meta/info
   // ═══════════════════════════════════════════════════════════════
 
 window.fbUploadAll = async function(uid, data) {
@@ -83,27 +84,113 @@ window.fbUploadAll = async function(uid, data) {
   const batch = writeBatch(window.db);
   const base = `users/${uid}`;
 
-  // Персональные данные пользователя
+  // Персональные настройки/счётчик чека
   batch.set(doc(window.db, base, 'meta', 'info'), {
     receiptCounter: data.receiptCounter,
     updatedAt: new Date().toISOString(),
     cashierName: data.cashierName || ''
   });
 
+  // ПРОДАЖИ — общий журнал для админа и всех продавцов
   for (const s of data.sales || []) {
-    batch.set(doc(window.db, base, 'sales', s.id), s);
+    batch.set(doc(window.db, 'sales', s.id), {
+      ...s,
+      ownerUid: s.ownerUid || uid,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
   }
 
+  // СКЛАДСКИЕ ОПЕРАЦИИ — общий журнал
   for (const o of data.stockOps || []) {
-    batch.set(doc(window.db, base, 'stockOps', o.id), o);
+    batch.set(doc(window.db, 'stockOps', o.id), {
+      ...o,
+      ownerUid: o.ownerUid || uid,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
   }
 
+  // ОТЛОЖЕННЫЕ ЧЕКИ — общий список для всех продавцов и админа
   for (const h of data.heldCarts || []) {
-    batch.set(doc(window.db, base, 'heldCarts', h.id), h);
+    batch.set(doc(window.db, 'heldCarts', h.id), {
+      ...h,
+      ownerUid: h.ownerUid || uid,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
   }
 
   await batch.commit();
   return true;
+};
+
+// Универсальные операции общего журнала
+window.fbSaveSale = async function(sale) {
+  if (!window.db || !sale || !sale.id) return false;
+  await setDoc(doc(window.db, 'sales', sale.id), {
+    ...sale,
+    ownerUid: sale.ownerUid || currentUser?.uid || '',
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+  return true;
+};
+window.fbDeleteSale = async function(id) {
+  if (!window.db || !id) return false;
+  await deleteDoc(doc(window.db, 'sales', id));
+  return true;
+};
+window.fbSaveStockOp = async function(op) {
+  if (!window.db || !op || !op.id) return false;
+  await setDoc(doc(window.db, 'stockOps', op.id), {
+    ...op,
+    ownerUid: op.ownerUid || currentUser?.uid || '',
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+  return true;
+};
+window.fbSaveHeldCart = async function(h) {
+  if (!window.db || !h || !h.id) return false;
+  await setDoc(doc(window.db, 'heldCarts', h.id), {
+    ...h,
+    ownerUid: h.ownerUid || currentUser?.uid || '',
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+  return true;
+};
+window.fbDeleteHeldCart = async function(id) {
+  if (!window.db || !id) return false;
+  await deleteDoc(doc(window.db, 'heldCarts', id));
+  return true;
+};
+
+// Общие коллекции: видны всем авторизованным пользователям.
+window.fbSaveReturn = async function(r){ if(!window.db||!r?.id) return false; await setDoc(doc(window.db,'returns',r.id),{...r,ownerUid:r.ownerUid||currentUser?.uid||'',updatedAt:new Date().toISOString()},{merge:true}); return true; };
+
+window.fbDownloadSharedData = async function() {
+  if (!window.db) return { sales: [], stockOps: [], heldCarts: [] };
+  const [salesSnap, opsSnap, heldSnap] = await Promise.all([
+    getDocs(collection(window.db, 'sales')),
+    getDocs(collection(window.db, 'stockOps')),
+    getDocs(collection(window.db, 'heldCarts')),
+    getDocs(collection(window.db, 'returns'))
+  ]);
+  return {
+    sales: salesSnap.docs.map(d => d.data()),
+    stockOps: opsSnap.docs.map(d => d.data()),
+    heldCarts: heldSnap.docs.map(d => d.data()),
+    returns: returnsSnap.docs.map(d => d.data())
+  };
+};
+
+window.fbListenSharedData = function(callback, onError) {
+  if (!window.db) return () => {};
+  let sales = [], stockOps = [], heldCarts = [], returns = [];
+  const emit = () => callback({ sales, stockOps, heldCarts, returns });
+  const unsubs = [
+    onSnapshot(collection(window.db, 'sales'), snap => { sales = snap.docs.map(d => d.data()); emit(); }, err => onError && onError(err)),
+    onSnapshot(collection(window.db, 'stockOps'), snap => { stockOps = snap.docs.map(d => d.data()); emit(); }, err => onError && onError(err)),
+    onSnapshot(collection(window.db, 'heldCarts'), snap => { heldCarts = snap.docs.map(d => d.data()); emit(); }, err => onError && onError(err)),
+    onSnapshot(collection(window.db, 'returns'), snap => { returns = snap.docs.map(d => d.data()); emit(); }, err => onError && onError(err))
+  ];
+  return () => unsubs.forEach(fn => { try { fn(); } catch(_){} });
 };
 
 // Записать один товар в ОБЩИЙ каталог /products
@@ -116,10 +203,8 @@ window.fbSaveProduct = async function(product) {
   return true;
 };
 
-// Записать несколько товаров в ОБЩИЙ каталог /products
 window.fbSaveProducts = async function(productList) {
   if (!window.db || !Array.isArray(productList) || !productList.length) return false;
-
   const batch = writeBatch(window.db);
   for (const p of productList) {
     if (!p || !p.id) continue;
@@ -132,14 +217,12 @@ window.fbSaveProducts = async function(productList) {
   return true;
 };
 
-// Удалить товар из ОБЩЕГО каталога /products
 window.fbDeleteProduct = async function(productId) {
   if (!window.db || !productId) return false;
   await deleteDoc(doc(window.db, 'products', productId));
   return true;
 };
 
-// Скачать общий каталог. Он НЕ зависит от uid.
 window.fbDownloadProducts = async function() {
   if (!window.db) return [];
   const result = [];
@@ -148,94 +231,73 @@ window.fbDownloadProducts = async function() {
   return result;
 };
 
-// Миграция старого каталога из /users/{uid}/products → /products
-// Ничего старого не удаляет.
+// Миграция старого каталога и старых журналов текущего пользователя.
+// Старые данные НЕ удаляются.
 window.fbMigrateLegacyProducts = async function(uid) {
   if (!window.db || !uid) return { migrated: 0, skipped: 0 };
-
   const globalSnap = await getDocs(collection(window.db, 'products'));
   const legacySnap = await getDocs(collection(window.db, `users/${uid}/products`));
-
-  if (legacySnap.empty) {
-    return { migrated: 0, skipped: globalSnap.size };
-  }
-
   const batch = writeBatch(window.db);
   let migrated = 0;
-
   legacySnap.forEach(d => {
     const data = d.data();
-    if (!data || !data.id) data.id = d.id;
-
-    // Если товар уже есть в общем каталоге — не перезаписываем его
-    // старой версией.
-    if (!globalSnap.docs.some(g => g.id === d.id)) {
-      batch.set(doc(window.db, 'products', d.id), {
-        ...data,
-        migratedFromUser: uid,
-        updatedAt: new Date().toISOString()
-      });
+    const id = data?.id || d.id;
+    if (!globalSnap.docs.some(g => g.id === id)) {
+      batch.set(doc(window.db, 'products', id), { ...data, id, migratedFromUser: uid, updatedAt: new Date().toISOString() });
       migrated++;
     }
   });
-
   if (migrated) await batch.commit();
   return { migrated, skipped: legacySnap.size - migrated };
 };
 
-// Подписка на общий каталог в реальном времени.
-// Любой новый/изменённый товар администратора появится у всех открытых клиентов.
-window.fbListenProducts = function(callback, onError) {
-  if (!window.db) return () => {};
-  return onSnapshot(
-    collection(window.db, 'products'),
-    snap => {
-      const list = [];
-      snap.forEach(d => list.push(d.data()));
-      callback(list);
-    },
-    err => {
-      console.error('Products listener error:', err);
-      if (onError) onError(err);
-    }
-  );
+// Перенос старых персональных журналов текущего пользователя в общие коллекции.
+window.fbMigrateLegacySharedData = async function(uid) {
+  if (!window.db || !uid) return { sales: 0, stockOps: 0, heldCarts: 0 };
+  const [salesSnap, opsSnap, heldSnap] = await Promise.all([
+    getDocs(collection(window.db, `users/${uid}/sales`)),
+    getDocs(collection(window.db, `users/${uid}/stockOps`)),
+    getDocs(collection(window.db, `users/${uid}/heldCarts`))
+  ]);
+  const batch = writeBatch(window.db);
+  let counts = { sales: 0, stockOps: 0, heldCarts: 0 };
+  salesSnap.forEach(d => { batch.set(doc(window.db, 'sales', d.id), { ...d.data(), ownerUid: uid, migratedFromUser: uid }); counts.sales++; });
+  opsSnap.forEach(d => { batch.set(doc(window.db, 'stockOps', d.id), { ...d.data(), ownerUid: uid, migratedFromUser: uid }); counts.stockOps++; });
+  heldSnap.forEach(d => { batch.set(doc(window.db, 'heldCarts', d.id), { ...d.data(), ownerUid: uid, migratedFromUser: uid }); counts.heldCarts++; });
+  if (counts.sales || counts.stockOps || counts.heldCarts) await batch.commit();
+  return counts;
 };
 
-// Загрузка персональных данных пользователя + ОБЩЕГО каталога.
+window.fbListenProducts = function(callback, onError) {
+  if (!window.db) return () => {};
+  return onSnapshot(collection(window.db, 'products'), snap => {
+    callback(snap.docs.map(d => d.data()));
+  }, err => {
+    console.error('Products listener error:', err);
+    if (onError) onError(err);
+  });
+};
+
+// Загрузка персональных meta + ОБЩЕГО каталога + ОБЩИХ журналов.
 window.fbDownloadAll = async function(uid) {
   if (!window.db || !uid) return null;
-
   const base = `users/${uid}`;
-  const result = {
-    products: [],
-    sales: [],
-    stockOps: [],
-    heldCarts: [],
-    receiptCounter: 1001,
-    cashierName: ''
-  };
-
+  const result = { products: [], sales: [], stockOps: [], heldCarts: [], returns: [], receiptCounter: 1001, cashierName: '' };
   try {
     const metaSnap = await getDoc(doc(window.db, base, 'meta', 'info'));
-
     if (metaSnap.exists()) {
       const m = metaSnap.data();
       result.receiptCounter = m.receiptCounter || 1001;
       result.cashierName = m.cashierName || '';
     }
-
-    const [prodSnap, salesSnap, opsSnap, heldSnap] = await Promise.all([
+    const [prodSnap, shared] = await Promise.all([
       getDocs(collection(window.db, 'products')),
-      getDocs(collection(window.db, base, 'sales')),
-      getDocs(collection(window.db, base, 'stockOps')),
-      getDocs(collection(window.db, base, 'heldCarts'))
+      window.fbDownloadSharedData()
     ]);
-
     prodSnap.forEach(d => result.products.push(d.data()));
-    salesSnap.forEach(d => result.sales.push(d.data()));
-    opsSnap.forEach(d => result.stockOps.push(d.data()));
-    heldSnap.forEach(d => result.heldCarts.push(d.data()));
-
+    result.sales = shared.sales;
+    result.stockOps = shared.stockOps;
+    result.heldCarts = shared.heldCarts;
     return result;
   } catch (e) {
     console.error('Download error:', e);
@@ -473,6 +535,14 @@ window.fbDownloadAll = async function(uid) {
       <input id="return-search" type="text" placeholder="Введите № чека..." class="flex-1 bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm" style="border-color: var(--border);">
       <button onclick="searchReceiptForReturn()" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">Найти чек</button>
     </div>
+    <div class="mt-4 p-3 border rounded-xl" style="border-color: var(--border);">
+      <div class="font-bold text-sm mb-2">Возврат по товару</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <select id="return-product-select" class="bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm" style="border-color: var(--border);"></select>
+        <input id="return-product-qty" type="number" min="0.001" step="0.001" value="1" class="bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-sm" style="border-color: var(--border);">
+        <button onclick="processProductReturn()" class="px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold">ВОЗВРАТ ТОВАРА</button>
+      </div>
+    </div>
     <div id="return-target-receipt"></div>
   </div>
 
@@ -549,10 +619,13 @@ window.fbDownloadAll = async function(uid) {
       <div class="flex gap-2 flex-wrap">
         <button onclick="setReportPeriod('today')" id="rbtn-today" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold" style="border-color: var(--border);">Сегодня</button>
         <button onclick="setReportPeriod('week')" id="rbtn-week" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold" style="border-color: var(--border);">Неделя</button>
+        <button onclick="setReportPeriod('month')" id="rbtn-month" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold">Месяц</button>
+        <button onclick="openCustomReportPeriod()" id="rbtn-custom" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold">Период</button>
         <button onclick="setReportPeriod('all')" id="rbtn-all" class="px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg font-bold">Всё</button>
         <button onclick="exportReportsExcel()" class="px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg font-bold">Экспорт Excel</button>
       </div>
     </div>
+    <div id="custom-report-period" class="hidden mb-4 p-3 border rounded-xl" style="border-color: var(--border); background: var(--total-bg);"><div class="grid grid-cols-1 md:grid-cols-3 gap-2 items-end"><label class="text-xs font-bold">С даты<input id="report-from" type="date" class="w-full mt-1 border rounded-lg px-2 py-2 bg-white dark:bg-slate-800"></label><label class="text-xs font-bold">По дату<input id="report-to" type="date" class="w-full mt-1 border rounded-lg px-2 py-2 bg-white dark:bg-slate-800"></label><button onclick="applyCustomReportPeriod()" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Сформировать</button></div></div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="report-stats"></div>
     <h3 class="font-bold text-sm mb-2">Журнал продаж</h3>
     <div id="report-sales-log" class="border rounded-xl divide-y text-xs" style="border-color: var(--border);"></div>
@@ -729,7 +802,7 @@ window.fbDownloadAll = async function(uid) {
 </div>
 
 <script>
-let products=[], sales=[], stockOps=[], cart=[], heldCarts=[];
+let products=[], sales=[], stockOps=[], cart=[], heldCarts=[], returns=[];
 let selectedLine=-1, currentUserName='Кассир', receiptCounter=1001, pendingProduct=null, qtyMode='add', payTab='mixed', currentStockOpTab='writeoff', sortStockAsc=false;
 let reportPeriod = 'all';
 let currentUser = null;          // Firebase user
@@ -738,7 +811,8 @@ let autoSyncTimer = null;
 let lastSyncTime = null;
 let stopProductsListener = null;
 let productsCloudReady = false;
-const LS={p:'sc_products_v2',s:'sc_sales_v2',ops:'sc_ops_v2',h:'sc_held_v2',c:'sc_rc_v2', theme:'sc_theme', lastSync:'sc_last_sync'};
+let stopSharedDataListener = null;
+const LS={p:'sc_products_v2',s:'sc_sales_v2',ops:'sc_ops_v2',h:'sc_held_v2',r:'sc_returns_v2',c:'sc_rc_v2', theme:'sc_theme', lastSync:'sc_last_sync'};
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
 function toNum(v){const n=parseFloat(v);return Number.isFinite(n)?n:0}
@@ -752,6 +826,7 @@ function loadLocal(){
     sales=JSON.parse(localStorage.getItem(LS.s)||'[]');
     stockOps=JSON.parse(localStorage.getItem(LS.ops)||'[]');
     heldCarts=JSON.parse(localStorage.getItem(LS.h)||'[]');
+    returns=JSON.parse(localStorage.getItem(LS.r)||'[]');
     receiptCounter=parseInt(localStorage.getItem(LS.c)||'1001',10)||1001;
     lastSyncTime = localStorage.getItem(LS.lastSync);
     const theme = localStorage.getItem(LS.theme);
@@ -766,6 +841,7 @@ function saveLocal(){
   localStorage.setItem(LS.s,JSON.stringify(sales));
   localStorage.setItem(LS.ops,JSON.stringify(stockOps));
   localStorage.setItem(LS.h,JSON.stringify(heldCarts));
+  localStorage.setItem(LS.r,JSON.stringify(returns));
   localStorage.setItem(LS.c,String(receiptCounter));
 }
 
@@ -846,6 +922,7 @@ async function doSync(silent = false){
       sales,
       stockOps,
       heldCarts,
+      returns,
       receiptCounter,
       cashierName: currentUserName
     };
@@ -879,6 +956,7 @@ async function pullFromCloud(){
     sales = data.sales || [];
     stockOps = data.stockOps || [];
     heldCarts = data.heldCarts || [];
+    returns = data.returns || [];
     receiptCounter = data.receiptCounter || 1001;
     if(data.cashierName) currentUserName = data.cashierName;
     saveLocal();
@@ -954,6 +1032,32 @@ async function loginWithGoogle(){
       });
     }
 
+    // 4) Переносим старые продажи/склад/отложенные текущего пользователя в общий журнал.
+    if(navigator.onLine && window.firebaseReady) {
+      try { await window.fbMigrateLegacySharedData(currentUser.uid); } catch(e) { console.warn('Legacy shared data migration:', e); }
+    }
+    // 5) Загружаем общий журнал и подписываемся на изменения других продавцов.
+    if(navigator.onLine && window.firebaseReady) {
+      try {
+        const shared = await window.fbDownloadSharedData();
+        sales = shared.sales || sales;
+        stockOps = shared.stockOps || stockOps;
+        heldCarts = shared.heldCarts || heldCarts;
+        saveLocal();
+      } catch(e) { console.warn('Shared data download:', e); }
+    }
+    if(stopSharedDataListener) stopSharedDataListener();
+    if(window.firebaseReady) {
+      stopSharedDataListener = window.fbListenSharedData((shared) => {
+        sales = shared.sales || [];
+        stockOps = shared.stockOps || [];
+        heldCarts = shared.heldCarts || [];
+      returns = shared.returns || [];
+        saveLocal();
+        renderAll();
+      }, err => console.warn('Shared data listener:', err));
+    }
+
     updateClock(); setInterval(updateClock, 1000);
     renderAll();
     updateOnlineBadge();
@@ -996,6 +1100,7 @@ async function logout(){
     stopProductsListener = null;
   }
   productsCloudReady = false;
+  if(stopSharedDataListener) { stopSharedDataListener(); stopSharedDataListener = null; }
 }
 
 function updateClock(){
@@ -1136,9 +1241,11 @@ function openQtyPad(){
 function holdCart(){
   if(!cart.length) return alert('Чек пуст');
   const customer = document.getElementById('cart-customer').value.trim();
-  heldCarts.push({ id: uid(), date: new Date().toLocaleString('ru-RU'), customer, items: [...cart] });
+  const held = { id: uid(), date: new Date().toLocaleString('ru-RU'), customer, items: [...cart], ownerUid: currentUser?.uid || '' };
+  heldCarts.push(held);
   cart=[]; selectedLine=-1; document.getElementById('cart-customer').value='';
   saveLocal(); renderReceipt(); updateHeldBadge();
+  if(currentUser && navigator.onLine && window.firebaseReady) window.fbSaveHeldCart(held).catch(console.error);
   alert('Чек успешно отложен');
 }
 
@@ -1167,10 +1274,12 @@ function restoreHeldCart(idx){
   if(cart.length && !confirm('Текущий чек не пуст. Перезаписать?')) return;
   cart = [...heldCarts[idx].items];
   document.getElementById('cart-customer').value = heldCarts[idx].customer || '';
+  const restoredHeld = heldCarts[idx];
   heldCarts.splice(idx, 1);
   saveLocal(); switchMainTab('sales'); renderReceipt();
+  if(currentUser && navigator.onLine && window.firebaseReady && restoredHeld?.id) window.fbDeleteHeldCart(restoredHeld.id).catch(console.error);
 }
-function deleteHeldCart(idx){ heldCarts.splice(idx, 1); saveLocal(); renderHeldCarts(); }
+function deleteHeldCart(idx){ const h=heldCarts[idx]; heldCarts.splice(idx, 1); saveLocal(); renderHeldCarts(); if(currentUser && navigator.onLine && window.firebaseReady && h?.id) window.fbDeleteHeldCart(h.id).catch(console.error); }
 
 function showQuickPanel(){
   const grid=document.getElementById('quick-grid');
@@ -1232,7 +1341,7 @@ function confirmPayment(type){
     id: uid(), num: receiptCounter, date: new Date().toISOString(), displayTime: new Date().toLocaleString('ru-RU'),
     items: [...cart], total, costTotal, profit: total - costTotal,
     cash: type==='debt'? 0 : cash, card: type==='debt'? 0 : card, isDebt: type==='debt',
-    customer, cashier: currentUserName
+    customer, cashier: currentUserName, ownerUid: currentUser?.uid || ''
   };
   cart.forEach(cItem=>{ const p=products.find(x=>x.id===cItem.id); if(p) p.stock = +(p.stock - cItem.qty).toFixed(3); });
   sales.push(sale);
@@ -1242,6 +1351,7 @@ function confirmPayment(type){
   saveLocal(); closeModal('modal-pay'); renderReceipt();
   // Остаток товара — общий, поэтому обновляем /products
   if(currentUser && navigator.onLine && window.firebaseReady) {
+    window.fbSaveSale(sale).catch(console.error);
     setTimeout(() => window.fbSaveProducts(products).catch(console.error), 300);
     setTimeout(() => doSync(true), 500);
   }
@@ -1351,6 +1461,9 @@ function editProductForm(id){
   openModal('modal-prod-form');
 }
 
+function normProd(v){return String(v??'').trim().toLowerCase().replace(/\s+/g,' ');}
+function findDuplicateProduct(candidate,excludeId){const n=normProd(candidate.name),b=normProd(candidate.barcode);return products.find(p=>String(p.id)!==String(excludeId||'')&&((n&&normProd(p.name)===n)||(b&&normProd(p.barcode)===b)))||null;}
+
 async function saveProductForm(){
   const id=document.getElementById('pf-id').value;
   const name=document.getElementById('pf-name').value.trim();
@@ -1374,6 +1487,8 @@ async function saveProductForm(){
   };
 
   const finalProduct = existing ? { ...existing, ...prodData } : prodData;
+  const duplicate=findDuplicateProduct(finalProduct,finalProduct.id);
+  if(duplicate) return alert('В каталоге уже есть такой товар: «'+duplicate.name+'». Проверьте название или штрихкод. Дубликат не добавлен.');
 
   try {
     // Локально — сразу
@@ -1568,6 +1683,7 @@ function exportReportsExcel(){
   filtered.forEach(s => rows.push([s.num,s.displayTime,s.total,s.costTotal,s.profit,s.cash,s.card,s.isDebt?'В долг':'Оплачен',s.cashier||'',s.customer||'',s.items.map(x=>x.name+' ×'+x.qty).join('; ')]));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Отчёт продаж');
+  const retRows=[['Дата','Чек','Товар','Количество','Сумма','Кассир','Способ']];(returns||[]).forEach(r=>retRows.push([r.date||'',r.saleNum||'',r.prodName||'',r.qty||0,r.amount||r.totalCost||0,r.cashier||'',r.returnMode==='receipt'?'По чеку':'По товару']));XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(retRows),'Возвраты');
   XLSX.writeFile(wb, 'SellCount_report_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
 
@@ -1601,14 +1717,19 @@ function executeStockOp(){
   if(!p || qty<=0) return alert('Выберите товар и корректное количество');
   if(!reason) return alert('Указание причины обязательно!');
   p.stock = +(p.stock - qty).toFixed(3);
-  stockOps.push({ id: uid(), type: currentStockOpTab, prodId: p.id, prodName: p.name, unit: p.unit, qty, reason, totalCost: p.cost * qty, date: new Date().toLocaleString('ru-RU') });
+  const op = { id: uid(), type: currentStockOpTab, prodId: p.id, prodName: p.name, unit: p.unit, qty, reason, totalCost: p.cost * qty, date: new Date().toLocaleString('ru-RU'), ownerUid: currentUser?.uid || '' };
+  stockOps.push(op);
   saveLocal(); renderStockOps();
   if(currentUser && navigator.onLine && window.firebaseReady) {
+    window.fbSaveStockOp(op).catch(console.error);
     setTimeout(() => window.fbSaveProducts(products).catch(console.error), 300);
     setTimeout(() => doSync(true), 500);
   }
   alert('Операция проведена!');
 }
+
+function renderReturnProductSelect(){const el=document.getElementById('return-product-select');if(!el)return;el.innerHTML=(products||[]).map(p=>`<option value="${p.id}">${safe(p.name)} — ${toNum(p.stock)} ${safe(p.unit||'шт')}</option>`).join('');}
+async function processProductReturn(){const pid=document.getElementById('return-product-select')?.value,qty=toNum(document.getElementById('return-product-qty')?.value);if(!pid||qty<=0)return alert('Выберите товар и количество.');const reason=prompt('Укажите причину возврата товара:');if(!reason)return alert('Причина обязательна.');const p=products.find(x=>String(x.id)===String(pid));if(!p)return;p.stock=+(toNum(p.stock)+qty).toFixed(3);const op={id:uid(),type:'customer_return',prodId:p.id,prodName:p.name,unit:p.unit||'шт',qty,reason,totalCost:toNum(p.cost)*qty,date:new Date().toLocaleString('ru-RU'),saleNum:'',ownerUid:currentUser?.uid||'',returnMode:'product'};stockOps.push(op);returns.push({...op,amount:toNum(p.price)*qty});saveLocal();renderAll();renderStockOps();renderCatalog();renderReturnProductSelect();if(currentUser&&navigator.onLine&&window.firebaseReady){window.fbSaveStockOp(op).catch(console.error);window.fbSaveReturn({...op,amount:toNum(p.price)*qty}).catch(console.error);window.fbSaveProduct(p).catch(console.error);}alert('Возврат товара оформлен и возвращён на склад.');}
 
 function searchReceiptForReturn(){
   const num=toNum(document.getElementById('return-search').value);
@@ -1638,9 +1759,13 @@ function processItemReturn(saleId, itemIdx){
   s.costTotal = +(s.costTotal - itemCost).toFixed(2);
   s.profit = +(s.total - s.costTotal).toFixed(2);
   s.items.splice(itemIdx, 1);
-  stockOps.push({ id: uid(), type: 'customer_return', prodId: item.id, prodName: item.name, unit: item.unit, qty: item.qty, reason, totalCost: itemCost, date: new Date().toLocaleString('ru-RU'), saleNum: s.num });
+  const returnOp = { id: uid(), type: 'customer_return', prodId: item.id, prodName: item.name, unit: item.unit, qty: item.qty, reason, totalCost: itemCost, date: new Date().toLocaleString('ru-RU'), saleNum: s.num, ownerUid: currentUser?.uid || '' };
+  returns.push({...returnOp, amount:toNum(item.sum), returnMode:'receipt'});
+  stockOps.push(returnOp);
   saveLocal(); searchReceiptForReturn();
   if(currentUser && navigator.onLine && window.firebaseReady) {
+    window.fbSaveSale(s).catch(console.error);
+    window.fbSaveStockOp(returnOp).catch(console.error);
     setTimeout(() => window.fbSaveProducts(products).catch(console.error), 300);
     setTimeout(() => doSync(true), 500);
   }
@@ -1649,12 +1774,15 @@ function processItemReturn(saleId, itemIdx){
 
 function setReportPeriod(p){
   reportPeriod = p;
-  ['today','week','all'].forEach(x=>{
+  ['today','week','month','all','custom'].forEach(x=>{
     const el = document.getElementById('rbtn-'+x);
     if(el) el.className = (x===p) ? 'px-3 py-1 bg-emerald-600 text-white text-xs rounded-lg font-bold' : 'px-3 py-1 bg-slate-100 dark:bg-slate-800 border text-xs rounded-lg font-bold';
   });
   renderReports();
 }
+
+function openCustomReportPeriod(){document.getElementById('custom-report-period')?.classList.remove('hidden');reportPeriod='custom';renderReports();}
+function applyCustomReportPeriod(){const f=document.getElementById('report-from')?.value,t=document.getElementById('report-to')?.value;if(!f||!t)return alert('Выберите обе даты.');if(f>t)return alert('Дата начала не может быть позже даты окончания.');window.customReportFrom=f;window.customReportTo=t;reportPeriod='custom';renderReports();}
 
 function getFilteredSales(){
   const now = new Date();
@@ -1663,6 +1791,8 @@ function getFilteredSales(){
     const d = new Date(s.date);
     if(reportPeriod === 'today') return d.toDateString() === now.toDateString();
     if(reportPeriod === 'week'){ const weekAgo = new Date(now.getTime() - 7*24*60*60*1000); return d >= weekAgo; }
+    if(reportPeriod === 'month') return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+    if(reportPeriod === 'custom'){ const from=new Date((window.customReportFrom||'1970-01-01')+'T00:00:00'); const to=new Date((window.customReportTo||'2999-12-31')+'T23:59:59.999'); return d>=from&&d<=to; }
     return true;
   });
 }
@@ -1684,6 +1814,8 @@ function renderReports(){
     const now = new Date();
     if(reportPeriod === 'today') return d.toDateString() === now.toDateString();
     if(reportPeriod === 'week'){ const weekAgo = new Date(now.getTime() - 7*24*60*60*1000); return d >= weekAgo; }
+    if(reportPeriod === 'month') return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+    if(reportPeriod === 'custom'){ const from=new Date((window.customReportFrom||'1970-01-01')+'T00:00:00'); const to=new Date((window.customReportTo||'2999-12-31')+'T23:59:59.999'); return d>=from&&d<=to; }
     return true;
   });
   const returnsSum = filteredOps.filter(o=>o.type==='customer_return').reduce((a,b)=>a+b.totalCost,0);
@@ -1711,6 +1843,7 @@ function renderAll(){ renderReceipt(); updateHeldBadge(); }
 
 document.addEventListener('DOMContentLoaded', ()=>{
   loadLocal();
+  renderReturnProductSelect();
   updateOnlineBadge();
   // Подсказка на экране входа
   const hint = document.getElementById('login-hint');
